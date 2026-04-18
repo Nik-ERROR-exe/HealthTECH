@@ -76,7 +76,6 @@ interface Testimonial {
   avatar?: string;
 }
 
-// ===== Stat Card Component =====
 const StatCard = ({ stat, index }: { stat: typeof stats[0]; index: number }) => {
   const ref = useRef(null);
   const isInView = useInView(ref, { once: true, margin: "-50px" });
@@ -87,24 +86,27 @@ const StatCard = ({ stat, index }: { stat: typeof stats[0]; index: number }) => 
       initial={{ opacity: 0, y: 30 }}
       animate={isInView ? { opacity: 1, y: 0 } : {}}
       transition={{ delay: index * 0.1, duration: 0.5 }}
-      className="group relative overflow-hidden rounded-2xl bg-gradient-to-br from-background/80 to-background/40 backdrop-blur-xl border border-border/50 p-6 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1"
+      className="group relative overflow-hidden rounded-xl sm:rounded-2xl bg-gradient-to-br from-background/80 to-background/40 backdrop-blur-xl border border-border/50 p-2 sm:p-3 lg:p-4 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1"
     >
       <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-secondary/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-      <div className="relative z-10">
-        <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 group-hover:scale-110 transition-transform duration-300">
-          <stat.icon size={22} className="text-primary" />
+      <div className="relative z-10 flex flex-row items-center gap-2 sm:gap-3">
+        <div className="flex h-8 w-8 sm:h-10 sm:w-10 lg:h-12 lg:w-12 items-center justify-center rounded-lg sm:rounded-xl bg-primary/10 group-hover:scale-110 transition-transform duration-300 shrink-0">
+          <stat.icon size={18} className="sm:size-20 lg:size-22 text-primary" />
         </div>
-        <p className="text-3xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">{stat.value}</p>
-        <p className="text-sm text-muted-foreground">{stat.label}</p>
+        <div className="flex-1 min-w-0">
+          <p className="text-lg sm:text-xl lg:text-2xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent leading-tight">
+            {stat.value}
+          </p>
+          <p className="text-[10px] sm:text-xs text-muted-foreground truncate">{stat.label}</p>
+        </div>
       </div>
     </motion.div>
   );
 };
-
-// ===== Testimonial Card Component =====
+// ===== Testimonial Card Component (unchanged but fine) =====
 const TestimonialCard = ({ testimonial }: { testimonial: Testimonial }) => {
   return (
-    <div className="group relative h-full rounded-2xl bg-gradient-to-br from-card/90 to-card/50 backdrop-blur-xl border border-border p-6 lg:p-7 hover:shadow-xl transition-all duration-300 hover:scale-[1.02] flex flex-col">
+    <div className="group relative h-full rounded-2xl bg-gradient-to-br from-card/90 to-card/50 backdrop-blur-xl border border-border p-5 sm:p-6 lg:p-7 hover:shadow-xl transition-all duration-300 hover:scale-[1.02] flex flex-col">
       <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-primary/5 to-secondary/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
       <div className="relative z-10 flex-1 flex flex-col">
         <Quote className="w-8 h-8 text-primary/30 mb-4" />
@@ -117,7 +119,7 @@ const TestimonialCard = ({ testimonial }: { testimonial: Testimonial }) => {
             />
           ))}
         </div>
-        <p className="text-foreground/90 leading-relaxed mb-6 flex-1">
+        <p className="text-foreground/90 leading-relaxed text-sm sm:text-base mb-6 flex-1">
           "{testimonial.comment}"
         </p>
         <div className="flex items-center gap-3 mt-auto pt-4 border-t border-border/50">
@@ -129,7 +131,7 @@ const TestimonialCard = ({ testimonial }: { testimonial: Testimonial }) => {
             </div>
           )}
           <div>
-            <p className="font-semibold text-foreground">{testimonial.name}</p>
+            <p className="font-semibold text-foreground text-sm sm:text-base">{testimonial.name}</p>
             {testimonial.role && <p className="text-xs text-muted-foreground">{testimonial.role}</p>}
           </div>
         </div>
@@ -138,7 +140,7 @@ const TestimonialCard = ({ testimonial }: { testimonial: Testimonial }) => {
   );
 };
 
-// ===== Testimonials Carousel Component =====
+// ===== Testimonials Carousel Component (responsive arrows) =====
 const TestimonialsCarousel = ({ testimonials }: { testimonials: Testimonial[] }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isHovered, setIsHovered] = useState(false);
@@ -207,7 +209,12 @@ const TestimonialsCarousel = ({ testimonials }: { testimonials: Testimonial[] })
   
   const getTranslateX = () => {
     if (!containerRef.current) return 0;
-    const cardWidth = containerRef.current.offsetWidth / 3;
+    // On mobile (<640px) 1 card, on md 2 cards, on lg 3 cards
+    const width = containerRef.current.offsetWidth;
+    let cardsPerView = 1;
+    if (width >= 1024) cardsPerView = 3;
+    else if (width >= 768) cardsPerView = 2;
+    const cardWidth = width / cardsPerView;
     return -(currentIndex * cardWidth);
   };
   
@@ -228,7 +235,7 @@ const TestimonialsCarousel = ({ testimonials }: { testimonials: Testimonial[] })
           {extendedTestimonials.map((testimonial, idx) => (
             <div 
               key={`${testimonial.id}-${idx}`}
-              className="w-full md:w-1/2 lg:w-1/3 flex-shrink-0 px-3"
+              className="w-full md:w-1/2 lg:w-1/3 flex-shrink-0 px-2 sm:px-3"
             >
               <TestimonialCard testimonial={testimonial} />
             </div>
@@ -236,29 +243,31 @@ const TestimonialsCarousel = ({ testimonials }: { testimonials: Testimonial[] })
         </div>
       </div>
       
+      {/* Navigation Arrows - hidden on small screens, visible on sm+ */}
       <button
         onClick={goToPrev}
-        className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-4 lg:-translate-x-6 w-10 h-10 rounded-full bg-background/80 backdrop-blur-sm border border-border shadow-lg flex items-center justify-center hover:bg-background transition-colors z-10"
+        className="hidden sm:flex absolute left-0 top-1/2 -translate-y-1/2 -translate-x-2 md:-translate-x-4 lg:-translate-x-6 w-8 h-8 md:w-10 md:h-10 rounded-full bg-background/80 backdrop-blur-sm border border-border shadow-lg items-center justify-center hover:bg-background transition-colors z-10"
         aria-label="Previous testimonial"
       >
         <ChevronLeft size={20} />
       </button>
       <button
         onClick={goToNext}
-        className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-4 lg:translate-x-6 w-10 h-10 rounded-full bg-background/80 backdrop-blur-sm border border-border shadow-lg flex items-center justify-center hover:bg-background transition-colors z-10"
+        className="hidden sm:flex absolute right-0 top-1/2 -translate-y-1/2 translate-x-2 md:translate-x-4 lg:translate-x-6 w-8 h-8 md:w-10 md:h-10 rounded-full bg-background/80 backdrop-blur-sm border border-border shadow-lg items-center justify-center hover:bg-background transition-colors z-10"
         aria-label="Next testimonial"
       >
         <ChevronRight size={20} />
       </button>
       
-      <div className="flex justify-center gap-2 mt-8">
+      {/* Dot Indicators */}
+      <div className="flex justify-center gap-2 mt-6 sm:mt-8">
         {testimonials.map((_, idx) => (
           <button
             key={idx}
             onClick={() => goToSlide(idx)}
             className={`h-2 rounded-full transition-all ${
               idx === dotIndex 
-                ? 'w-8 bg-primary' 
+                ? 'w-6 sm:w-8 bg-primary' 
                 : 'w-2 bg-muted-foreground/30 hover:bg-muted-foreground/50'
             }`}
             aria-label={`Go to testimonial ${idx + 1}`}
@@ -394,144 +403,151 @@ const LandingPage = () => {
     <div ref={containerRef} className="min-h-screen bg-background text-foreground">
       <Navbar />
 
-      {/* === HERO SECTION === */}
-      <section className="relative min-h-screen flex items-center overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-secondary/5 pointer-events-none" />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_40%,rgba(56,189,248,0.05)_0%,transparent_50%)]" />
+      {/* === HERO SECTION (Responsive: desktop 2‑col, tablet reduced 3D, mobile hide 3D) === */}
+<section className="relative min-h-screen flex items-center overflow-hidden">
+  {/* Ambient backgrounds unchanged */}
+  <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-secondary/5 pointer-events-none" />
+  <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_40%,rgba(56,189,248,0.05)_0%,transparent_50%)]" />
 
-        <div className="container mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
-          <div className="grid lg:grid-cols-2 gap-8 lg:gap-12 items-center min-h-screen py-20 lg:py-0">
-            <motion.div
-              style={{ y: heroTextY, opacity: heroOpacity }}
-              className="space-y-6 lg:space-y-8"
-            >
-              <motion.div
-                initial="hidden"
-                animate="visible"
-                variants={fadeUp}
-                custom={0}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary/10 text-primary text-sm font-medium border border-primary/20 backdrop-blur-sm"
-              >
-                <Sparkles size={14} className="animate-pulse" />
-                <span>Intelligent Healthcare Platform</span>
-              </motion.div>
+  <div className="container mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
+    <div className="grid lg:grid-cols-2 gap-8 lg:gap-12 items-center min-h-screen py-12 sm:py-20 lg:py-0">
+      {/* Left Column – Text Content */}
+      <motion.div
+        style={{ y: heroTextY, opacity: heroOpacity }}
+        className="space-y-5 sm:space-y-6 lg:space-y-8 text-center lg:text-left"
+      >
+        <motion.div
+          initial="hidden"
+          animate="visible"
+          variants={fadeUp}
+          custom={0}
+          className="inline-flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full bg-primary/10 text-primary text-xs sm:text-sm font-medium border border-primary/20 backdrop-blur-sm mx-auto lg:mx-0"
+        >
+          <Sparkles size={14} className="animate-pulse" />
+          <span>Intelligent Healthcare Platform</span>
+        </motion.div>
 
-              <motion.h1
-                variants={fadeUp}
-                custom={1}
-                initial="hidden"
-                animate="visible"
-                className="text-4xl sm:text-5xl lg:text-6xl xl:text-7xl font-bold leading-[1.1] tracking-tight"
-              >
-                Healthcare that{' '}
-                <span className="relative inline-block">
-                  <span className="gradient-text">watches over</span>
-                  <span className="absolute -bottom-2 left-0 w-full h-1 bg-gradient-to-r from-primary to-secondary rounded-full opacity-60" />
-                </span>
-                <br />
-                your patients
-              </motion.h1>
+        <motion.h1
+          variants={fadeUp}
+          custom={1}
+          initial="hidden"
+          animate="visible"
+          className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl xl:text-7xl font-bold leading-[1.15] tracking-tight"
+        >
+          Healthcare that{' '}
+          <span className="relative inline-block">
+            <span className="gradient-text">watches over</span>
+            <span className="absolute -bottom-1 sm:-bottom-2 left-0 w-full h-0.5 sm:h-1 bg-gradient-to-r from-primary to-secondary rounded-full opacity-60" />
+          </span>
+          <br />
+          your patients
+        </motion.h1>
 
-              <motion.p
-                variants={fadeUp}
-                custom={2}
-                initial="hidden"
-                animate="visible"
-                className="text-lg sm:text-xl text-muted-foreground max-w-lg leading-relaxed"
-              >
-                CARENETRA uses AI agents to monitor patients 24/7, enabling proactive care, timely alerts, and better outcomes.
-              </motion.p>
-
-              <motion.div
-                variants={fadeUp}
-                custom={3}
-                initial="hidden"
-                animate="visible"
-                className="flex flex-wrap gap-4"
-              >
-                <Link
-                  to="/register"
-                  className="group relative px-6 py-3.5 rounded-xl bg-gradient-to-r from-primary to-secondary text-primary-foreground font-medium shadow-lg shadow-primary/25 hover:shadow-xl hover:scale-105 transition-all duration-300 flex items-center gap-2 overflow-hidden"
-                >
-                  <span className="relative z-10">Start Monitoring Now</span>
-                  <ArrowRight size={18} className="relative z-10 group-hover:translate-x-1 transition-transform" />
-                  <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
-                </Link>
-                <Link
-                  to="/demo"
-                  className="px-6 py-3.5 rounded-xl border-2 border-border bg-background/50 backdrop-blur-sm text-foreground font-medium hover:bg-muted/80 transition-all flex items-center gap-2"
-                >
-                  <Activity size={18} />
-                  View Live Demo
-                </Link>
-              </motion.div>
-
-              <motion.div
-                variants={fadeUp}
-                custom={4}
-                initial="hidden"
-                animate="visible"
-                className="pt-8 grid grid-cols-3 gap-4"
-              >
-                {stats.map((stat, idx) => (
-                  <StatCard key={stat.label} stat={stat} index={idx} />
-                ))}
-              </motion.div>
-            </motion.div>
-
-            <motion.div
-              style={{ scale: canvasScale }}
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ duration: 1, delay: 0.2 }}
-              className="relative h-[450px] sm:h-[550px] lg:h-[700px] w-full"
-            >
-              <CarenetraDNA scrollProgress={scrollProgress} className="w-full h-full" />
-
-              <motion.div
-                initial={{ opacity: 0, x: 20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.8 }}
-                className="absolute top-10 right-0 lg:right-[-20px] glass-card px-4 py-2 rounded-full text-sm font-medium shadow-lg border-primary/20"
-              >
-                <Activity size={16} className="inline mr-2 text-primary" />
-                Real-time Monitoring
-              </motion.div>
-
-              <motion.div
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 1 }}
-                className="absolute bottom-10 left-0 lg:left-[-20px] glass-card px-4 py-2 rounded-full text-sm font-medium shadow-lg border-secondary/20"
-              >
-                <Shield size={16} className="inline mr-2 text-secondary" />
-                HIPAA Compliant
-              </motion.div>
-            </motion.div>
-          </div>
-        </div>
+        <motion.p
+          variants={fadeUp}
+          custom={2}
+          initial="hidden"
+          animate="visible"
+          className="text-base sm:text-lg md:text-xl text-muted-foreground max-w-lg lg:max-w-none mx-auto lg:mx-0 leading-relaxed"
+        >
+          CARENETRA uses AI agents to monitor patients 24/7, enabling proactive care, timely alerts, and better outcomes.
+        </motion.p>
 
         <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 1.5 }}
-          className="absolute bottom-8 left-1/2 -translate-x-1/2"
+          variants={fadeUp}
+          custom={3}
+          initial="hidden"
+          animate="visible"
+          className="flex flex-col sm:flex-row flex-wrap gap-3 sm:gap-4 justify-center lg:justify-start"
         >
-          <div className="flex flex-col items-center gap-2">
-            <span className="text-xs text-muted-foreground uppercase tracking-widest">Scroll to explore</span>
-            <motion.div
-              animate={{ y: [0, 8, 0] }}
-              transition={{ repeat: Infinity, duration: 2, ease: "easeInOut" }}
-              className="text-primary"
-            >
-              <ChevronDown size={20} />
-            </motion.div>
-          </div>
+          <Link
+            to="/register"
+            className="group relative px-5 sm:px-6 py-3 sm:py-3.5 rounded-xl bg-gradient-to-r from-primary to-secondary text-primary-foreground font-medium shadow-lg shadow-primary/25 hover:shadow-xl hover:scale-105 transition-all duration-300 flex items-center justify-center gap-2 overflow-hidden"
+          >
+            <span className="relative z-10 text-sm sm:text-base">Start Monitoring Now</span>
+            <ArrowRight size={18} className="relative z-10 group-hover:translate-x-1 transition-transform" />
+            <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
+          </Link>
+          <Link
+            to="/demo"
+            className="px-5 sm:px-6 py-3 sm:py-3.5 rounded-xl border-2 border-border bg-background/50 backdrop-blur-sm text-foreground font-medium hover:bg-muted/80 transition-all flex items-center justify-center gap-2"
+          >
+            <Activity size={18} />
+            <span className="text-sm sm:text-base">View Live Demo</span>
+          </Link>
         </motion.div>
-      </section>
 
-      {/* === TRUST BAR === */}
-      <section className="py-12 border-y border-border/30 bg-muted/10">
+       <motion.div
+  variants={fadeUp}
+  custom={4}
+  initial="hidden"
+  animate="visible"
+  className="pt-6 sm:pt-8 grid grid-cols-3 gap-3 sm:gap-4"
+>
+  {stats.map((stat, idx) => (
+    <StatCard key={stat.label} stat={stat} index={idx} />
+  ))}
+</motion.div>
+      </motion.div>
+
+{/* Right Column – 3D DNA Canvas */}
+<motion.div
+  style={{ scale: canvasScale }}
+  initial={{ opacity: 0, scale: 0.95 }}
+  animate={{ opacity: 1, scale: 1 }}
+  transition={{ duration: 1, delay: 0.2 }}
+className="relative w-full hidden sm:block"
+>
+  <div className="h-[350px] sm:h-[400px] md:h-[450px] lg:h-[700px] w-full">
+    <CarenetraDNA scrollProgress={scrollProgress} className="w-full h-full" />
+  </div>
+
+  {/* Floating badges (unchanged) */}
+  <motion.div
+    initial={{ opacity: 0, x: 20 }}
+    animate={{ opacity: 1, x: 0 }}
+    transition={{ delay: 0.8 }}
+    className="absolute top-4 sm:top-10 right-0 lg:right-[-20px] glass-card px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium shadow-lg border-primary/20"
+  >
+    <Activity size={14} className="inline mr-1 sm:mr-2 text-primary" />
+    Real-time Monitoring
+  </motion.div>
+
+  <motion.div
+    initial={{ opacity: 0, x: -20 }}
+    animate={{ opacity: 1, x: 0 }}
+    transition={{ delay: 1 }}
+    className="absolute bottom-4 sm:bottom-10 left-0 lg:left-[-20px] glass-card px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium shadow-lg border-secondary/20"
+  >
+    <Shield size={14} className="inline mr-1 sm:mr-2 text-secondary" />
+    HIPAA Compliant
+  </motion.div>
+</motion.div>
+    </div>
+  </div>
+
+  {/* Scroll indicator */}
+  <motion.div
+    initial={{ opacity: 0 }}
+    animate={{ opacity: 1 }}
+    transition={{ delay: 1.5 }}
+    className="absolute bottom-8 left-1/2 -translate-x-1/2"
+  >
+    <div className="flex flex-col items-center gap-2">
+      <span className="text-xs text-muted-foreground uppercase tracking-widest">Scroll to explore</span>
+      <motion.div
+        animate={{ y: [0, 8, 0] }}
+        transition={{ repeat: Infinity, duration: 2, ease: "easeInOut" }}
+        className="text-primary"
+      >
+        <ChevronDown size={20} />
+      </motion.div>
+    </div>
+  </motion.div>
+</section>
+
+      {/* === TRUST BAR (responsive gaps) === */}
+      <section className="py-8 sm:py-12 border-y border-border/30 bg-muted/10">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8">
           <motion.div
             initial={{ opacity: 0 }}
@@ -540,10 +556,10 @@ const LandingPage = () => {
             transition={{ duration: 0.6 }}
             className="text-center"
           >
-            <p className="text-sm text-muted-foreground uppercase tracking-wider mb-6">
+            <p className="text-xs sm:text-sm text-muted-foreground uppercase tracking-wider mb-4 sm:mb-6">
               Trusted by leading healthcare institutions
             </p>
-            <div className="flex flex-wrap justify-center items-center gap-8 md:gap-12">
+            <div className="flex flex-wrap justify-center items-center gap-4 sm:gap-6 md:gap-8 lg:gap-12">
               {partners.map((partner, idx) => (
                 <motion.div
                   key={idx}
@@ -551,10 +567,10 @@ const LandingPage = () => {
                   whileInView={{ opacity: 1, y: 0 }}
                   viewport={{ once: true }}
                   transition={{ delay: idx * 0.1 }}
-                  className="flex items-center gap-2 text-foreground/70 hover:text-foreground transition-colors"
+                  className="flex items-center gap-1.5 sm:gap-2 text-foreground/70 hover:text-foreground transition-colors"
                 >
-                  <span className="text-2xl">{partner.logo}</span>
-                  <span className="font-medium text-sm">{partner.name}</span>
+                  <span className="text-xl sm:text-2xl">{partner.logo}</span>
+                  <span className="font-medium text-xs sm:text-sm">{partner.name}</span>
                 </motion.div>
               ))}
             </div>
@@ -562,28 +578,28 @@ const LandingPage = () => {
         </div>
       </section>
 
-      {/* === FEATURES SECTION === */}
-      <section id="features" className="py-24 sm:py-32 bg-muted/20 relative">
+      {/* === FEATURES SECTION (fine‑tuned padding) === */}
+      <section id="features" className="py-16 sm:py-24 lg:py-32 bg-muted/20 relative">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8">
           <motion.div
             initial="hidden"
             whileInView="visible"
             viewport={{ once: true, margin: "-100px" }}
-            className="text-center max-w-3xl mx-auto mb-16"
+            className="text-center max-w-3xl mx-auto mb-12 sm:mb-16"
           >
-            <motion.p variants={fadeUp} custom={0} className="text-sm font-semibold text-primary uppercase tracking-wider mb-3">
+            <motion.p variants={fadeUp} custom={0} className="text-xs sm:text-sm font-semibold text-primary uppercase tracking-wider mb-2 sm:mb-3">
               Features
             </motion.p>
-            <motion.h2 variants={fadeUp} custom={1} className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-6">
+            <motion.h2 variants={fadeUp} custom={1} className="text-2xl sm:text-3xl lg:text-4xl xl:text-5xl font-bold mb-4 sm:mb-6">
               Everything you need for{' '}
               <span className="gradient-text">modern care</span>
             </motion.h2>
-            <motion.p variants={fadeUp} custom={2} className="text-lg text-muted-foreground">
+            <motion.p variants={fadeUp} custom={2} className="text-sm sm:text-base lg:text-lg text-muted-foreground">
               Powerful tools designed to streamline healthcare delivery and improve patient outcomes.
             </motion.p>
           </motion.div>
 
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-8">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-6 lg:gap-8">
             {features.map((feature, i) => {
               const ref = useRef(null);
               const isInView = useInView(ref, { once: true, margin: "-50px" });
@@ -594,15 +610,15 @@ const LandingPage = () => {
                   initial={{ opacity: 0, y: 30 }}
                   animate={isInView ? { opacity: 1, y: 0 } : {}}
                   transition={{ delay: i * 0.1, duration: 0.5 }}
-                  className="group relative rounded-2xl bg-gradient-to-br from-card/90 to-card/50 backdrop-blur-xl border border-border p-6 lg:p-8 hover:shadow-2xl hover:-translate-y-1.5 transition-all duration-300"
+                  className="group relative rounded-2xl bg-gradient-to-br from-card/90 to-card/50 backdrop-blur-xl border border-border p-5 sm:p-6 lg:p-8 hover:shadow-2xl hover:-translate-y-1.5 transition-all duration-300"
                 >
                   <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-primary/5 to-secondary/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
                   <div className="relative z-10">
-                    <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center mb-6 group-hover:bg-primary/20 group-hover:scale-110 transition-all duration-300">
-                      <feature.icon size={28} className="text-primary" />
+                    <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-primary/10 flex items-center justify-center mb-4 sm:mb-6 group-hover:bg-primary/20 group-hover:scale-110 transition-all duration-300">
+                      <feature.icon size={24} className="sm:size-28 text-primary" />
                     </div>
-                    <h3 className="text-xl font-semibold mb-3">{feature.title}</h3>
-                    <p className="text-muted-foreground leading-relaxed">{feature.desc}</p>
+                    <h3 className="text-lg sm:text-xl font-semibold mb-2 sm:mb-3">{feature.title}</h3>
+                    <p className="text-sm sm:text-base text-muted-foreground leading-relaxed">{feature.desc}</p>
                   </div>
                 </motion.div>
               );
@@ -611,25 +627,25 @@ const LandingPage = () => {
         </div>
       </section>
 
-      {/* === HOW IT WORKS === */}
-      <section id="how-it-works" className="py-24 sm:py-32 relative">
+      {/* === HOW IT WORKS (responsive) === */}
+      <section id="how-it-works" className="py-16 sm:py-24 lg:py-32 relative">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8">
           <motion.div
             initial="hidden"
             whileInView="visible"
             viewport={{ once: true, margin: "-100px" }}
-            className="text-center max-w-3xl mx-auto mb-16"
+            className="text-center max-w-3xl mx-auto mb-12 sm:mb-16"
           >
-            <motion.p variants={fadeUp} custom={0} className="text-sm font-semibold text-primary uppercase tracking-wider mb-3">
+            <motion.p variants={fadeUp} custom={0} className="text-xs sm:text-sm font-semibold text-primary uppercase tracking-wider mb-2 sm:mb-3">
               How It Works
             </motion.p>
-            <motion.h2 variants={fadeUp} custom={1} className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-6">
+            <motion.h2 variants={fadeUp} custom={1} className="text-2xl sm:text-3xl lg:text-4xl xl:text-5xl font-bold mb-4 sm:mb-6">
               Simple, effective care in{' '}
               <span className="gradient-text">4 steps</span>
             </motion.h2>
           </motion.div>
 
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-8 relative">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 relative">
             <div className="hidden lg:block absolute top-20 left-[12%] right-[12%] h-0.5 bg-gradient-to-r from-transparent via-primary/40 to-transparent" />
 
             {steps.map((step, i) => {
@@ -644,11 +660,11 @@ const LandingPage = () => {
                   transition={{ delay: i * 0.15, duration: 0.6 }}
                   className="text-center relative"
                 >
-                  <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center shadow-xl shadow-primary/30 relative z-10">
-                    <span className="text-2xl font-bold text-white">{step.num}</span>
+                  <div className="w-16 h-16 sm:w-20 sm:h-20 mx-auto mb-4 sm:mb-6 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center shadow-xl shadow-primary/30 relative z-10">
+                    <span className="text-xl sm:text-2xl font-bold text-white">{step.num}</span>
                   </div>
-                  <h3 className="text-xl font-semibold mb-3">{step.title}</h3>
-                  <p className="text-muted-foreground">{step.desc}</p>
+                  <h3 className="text-lg sm:text-xl font-semibold mb-2 sm:mb-3">{step.title}</h3>
+                  <p className="text-sm sm:text-base text-muted-foreground">{step.desc}</p>
                 </motion.div>
               );
             })}
@@ -656,29 +672,30 @@ const LandingPage = () => {
         </div>
       </section>
 
-      {/* === TESTIMONIALS SECTION === */}
-      <section id="testimonials" className="py-24 sm:py-32 bg-muted/20 relative overflow-hidden">
+      {/* === TESTIMONIALS SECTION (with responsive button placement) === */}
+      <section id="testimonials" className="py-16 sm:py-24 lg:py-32 bg-muted/20 relative overflow-hidden">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="relative flex flex-col items-center text-center mb-12">
+          <div className="relative">
             <motion.div
               initial="hidden"
               whileInView="visible"
               viewport={{ once: true, margin: "-100px" }}
-              className="max-w-3xl mx-auto"
+              className="text-center max-w-3xl mx-auto mb-8 sm:mb-12"
             >
-              <motion.p variants={fadeUp} custom={0} className="text-sm font-semibold text-primary uppercase tracking-wider mb-3">
+              <motion.p variants={fadeUp} custom={0} className="text-xs sm:text-sm font-semibold text-primary uppercase tracking-wider mb-2 sm:mb-3">
                 Testimonials
               </motion.p>
-              <motion.h2 variants={fadeUp} custom={1} className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-6">
+              <motion.h2 variants={fadeUp} custom={1} className="text-2xl sm:text-3xl lg:text-4xl xl:text-5xl font-bold mb-4 sm:mb-6">
                 Trusted by{' '}
                 <span className="gradient-text">healthcare professionals</span>
               </motion.h2>
-              <motion.p variants={fadeUp} custom={2} className="text-lg text-muted-foreground">
+              <motion.p variants={fadeUp} custom={2} className="text-sm sm:text-base lg:text-lg text-muted-foreground">
                 See what doctors and care teams are saying about CARENETRA.
               </motion.p>
             </motion.div>
             
-            <div className="absolute right-0 top-0 lg:top-2">
+            {/* Desktop: absolute top-right; Mobile: block below heading */}
+            <div className="hidden sm:block absolute right-0 top-0 lg:top-2">
               <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
                 <DialogTrigger asChild>
                   <Button
@@ -748,21 +765,94 @@ const LandingPage = () => {
                 </DialogContent>
               </Dialog>
             </div>
+
+            {/* Mobile button */}
+            <div className="sm:hidden flex justify-center mb-8">
+              <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="glass-card border-primary/20 hover:bg-primary/5 gap-2 shadow-md"
+                  >
+                    <Plus size={16} />
+                    Add Testimonial
+                  </Button>
+                </DialogTrigger>
+                {/* same dialog content as above */}
+                <DialogContent className="sm:max-w-[425px]">
+                  <DialogHeader>
+                    <DialogTitle>Share Your Experience</DialogTitle>
+                    <DialogDescription>
+                      Tell us how CARENETRA has helped your practice.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="grid gap-4 py-4">
+                    <div className="grid grid-cols-4 items-center gap-4">
+                      <Label htmlFor="name-mobile" className="text-right">Name</Label>
+                      <Input
+                        id="name-mobile"
+                        value={newTestimonial.name}
+                        onChange={(e) => setNewTestimonial({ ...newTestimonial, name: e.target.value })}
+                        className="col-span-3"
+                        placeholder="Dr. John Doe"
+                      />
+                    </div>
+                    <div className="grid grid-cols-4 items-center gap-4">
+                      <Label htmlFor="role-mobile" className="text-right">Role (optional)</Label>
+                      <Input
+                        id="role-mobile"
+                        value={newTestimonial.role}
+                        onChange={(e) => setNewTestimonial({ ...newTestimonial, role: e.target.value })}
+                        className="col-span-3"
+                        placeholder="Cardiologist, Mayo Clinic"
+                      />
+                    </div>
+                    <div className="grid grid-cols-4 items-center gap-4">
+                      <Label htmlFor="rating-mobile" className="text-right">Rating</Label>
+                      <div className="col-span-3">
+                        <StarRatingInput
+                          rating={newTestimonial.rating}
+                          setRating={(r) => setNewTestimonial({ ...newTestimonial, rating: r })}
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-4 items-center gap-4">
+                      <Label htmlFor="comment-mobile" className="text-right">Feedback</Label>
+                      <Textarea
+                        id="comment-mobile"
+                        value={newTestimonial.comment}
+                        onChange={(e) => setNewTestimonial({ ...newTestimonial, comment: e.target.value })}
+                        className="col-span-3"
+                        placeholder="Your experience with CARENETRA..."
+                        rows={4}
+                      />
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>Cancel</Button>
+                    <Button onClick={handleAddTestimonial} disabled={!newTestimonial.name || !newTestimonial.comment}>
+                      Submit
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            </div>
           </div>
 
           <TestimonialsCarousel testimonials={testimonials} />
         </div>
       </section>
 
-      {/* === CTA SECTION === */}
-      <section className="py-24 sm:py-32">
+      {/* === CTA SECTION (responsive padding) === */}
+      <section className="py-16 sm:py-24 lg:py-32">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8">
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             whileInView={{ opacity: 1, scale: 1 }}
             viewport={{ once: true }}
             transition={{ duration: 0.6 }}
-            className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary to-secondary p-12 lg:p-16 text-center shadow-2xl"
+            className="relative overflow-hidden rounded-2xl sm:rounded-3xl bg-gradient-to-br from-primary to-secondary p-6 sm:p-8 md:p-12 lg:p-16 text-center shadow-2xl"
           >
             <div className="absolute inset-0 bg-gradient-to-t from-black/10 to-white/10" />
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_30%,rgba(255,255,255,0.1)_0%,transparent_50%)]" />
@@ -772,7 +862,7 @@ const LandingPage = () => {
                 initial={{ opacity: 0, y: 20 }}
                 whileInView={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.2 }}
-                className="text-3xl sm:text-4xl lg:text-5xl font-bold text-white mb-6"
+                className="text-2xl sm:text-3xl lg:text-4xl xl:text-5xl font-bold text-white mb-4 sm:mb-6"
               >
                 Ready to transform patient care?
               </motion.h2>
@@ -780,7 +870,7 @@ const LandingPage = () => {
                 initial={{ opacity: 0, y: 20 }}
                 whileInView={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.3 }}
-                className="text-white/90 text-lg mb-8 max-w-2xl mx-auto"
+                className="text-white/90 text-sm sm:text-base lg:text-lg mb-6 sm:mb-8 max-w-2xl mx-auto"
               >
                 Join thousands of healthcare providers using CARENETRA to deliver proactive, AI-powered care.
               </motion.p>
@@ -791,7 +881,7 @@ const LandingPage = () => {
               >
                 <Link
                   to="/register"
-                  className="inline-flex items-center gap-2 px-8 py-4 rounded-xl bg-white text-foreground font-semibold hover:scale-105 transform transition-all shadow-xl"
+                  className="inline-flex items-center gap-2 px-6 sm:px-8 py-3 sm:py-4 rounded-xl bg-white text-foreground font-semibold hover:scale-105 transform transition-all shadow-xl text-sm sm:text-base"
                 >
                   Get Started Free <ArrowRight size={18} />
                 </Link>
@@ -802,16 +892,16 @@ const LandingPage = () => {
       </section>
 
       {/* === FOOTER === */}
-      <footer className="border-t border-border/50 py-12">
+      <footer className="border-t border-border/50 py-8 sm:py-12">
         <div className="container mx-auto px-4">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-secondary flex items-center justify-center shadow-lg shadow-primary/30">
-                <span className="text-white font-bold text-lg">C</span>
+              <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-br from-primary to-secondary flex items-center justify-center shadow-lg shadow-primary/30">
+                <span className="text-white font-bold text-base sm:text-lg">C</span>
               </div>
-              <span className="font-semibold text-xl">CARENETRA</span>
+              <span className="font-semibold text-lg sm:text-xl">CARENETRA</span>
             </div>
-            <p className="text-sm text-muted-foreground">© 2025 CARENETRA. All rights reserved.</p>
+            <p className="text-xs sm:text-sm text-muted-foreground">© 2025 CARENETRA. All rights reserved.</p>
           </div>
         </div>
       </footer>
