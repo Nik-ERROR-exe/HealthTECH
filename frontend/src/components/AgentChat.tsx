@@ -1,124 +1,515 @@
-import { useState, useRef, useEffect } from 'react';
-import { MessageCircle, X, Send, Mic } from 'lucide-react';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import {
+  MessageCircle, X, Mic, MicOff, Send, Upload,
+  Loader2, Volume2, VolumeX,
+} from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { demoAgentMessages } from '@/lib/demo-data';
+import { toast } from 'sonner';
+import { conversationApi } from '@/lib/api';
 
-interface Message {
-  id: string;
-  type: 'agent' | 'user';
-  text: string;
-  time: string;
-  options?: string[];
+declare global {
+  interface Window {
+    SpeechRecognition: any;
+    webkitSpeechRecognition: any;
+  }
 }
 
+interface Question {
+  id: string;
+  question: string; // ← matches caretaker_agent output field name
+  type: 'mcq' | 'yesno' | 'scale' | 'text' | 'photo';
+  options: string[];
+}
+
+interface ChatMessage {
+  role: 'cara' | 'patient';
+  content: string;
+  options?: string[];
+  questionType?: string;
+  isLatest?: boolean;
+}
+
+type Phase = 'idle' | 'starting' | 'chatting' | 'photo' | 'submitting' | 'done';
+
+const TIER_CONFIG = {
+  GREEN:     { color: 'text-emerald-400', icon: '🟢', label: 'Stable' },
+  YELLOW:    { color: 'text-yellow-400',  icon: '🟡', label: 'Watch' },
+  ORANGE:    { color: 'text-orange-400',  icon: '🟠', label: 'Attention needed' },
+  RED:       { color: 'text-red-400',     icon: '🔴', label: 'High risk' },
+  EMERGENCY: { color: 'text-red-600',     icon: '🚨', label: 'Emergency' },
+} as const;
+
 const AgentChat = () => {
-  const [open, setOpen] = useState(false);
-  const [messages, setMessages] = useState<Message[]>(demoAgentMessages);
-  const [input, setInput] = useState('');
-  const [recording, setRecording] = useState(false);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const [open, setOpen]                   = useState(false);
+  const [phase, setPhase]                 = useState<Phase>('idle');
+  const [sessionId, setSessionId]         = useState<string | null>(null);
+  const [questions, setQuestions]         = useState<Question[]>([]);
+  const [currentQIndex, setCurrentQIndex] = useState(0);
+  const [currentQ, setCurrentQ]           = useState<Question | null>(null);
+  const [messages, setMessages]           = useState<ChatMessage[]>([]);
+  const [textInput, setTextInput]         = useState('');
+  const [isListening, setIsListening]     = useState(false);
+  const [isSpeaking, setIsSpeaking]       = useState(false);
+  const [ttsEnabled, setTtsEnabled]       = useState(true);
+  const [finalTier, setFinalTier]         = useState<string | null>(null);
+
+  const hasMic = typeof window !== 'undefined' &&
+    ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window);
+  const hasTTS = typeof window !== 'undefined' && 'speechSynthesis' in window;
+
+  const scrollRef      = useRef<HTMLDivElement>(null);
+  const fileInputRef   = useRef<HTMLInputElement>(null);
+  const recognitionRef = useRef<any>(null);
+  const voicesLoaded   = useRef(false);
 
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
+  }, [messages, phase]);
+
+  useEffect(() => {
+    if (hasTTS && !voicesLoaded.current) {
+      window.speechSynthesis.getVoices();
+      window.speechSynthesis.onvoiceschanged = () => { voicesLoaded.current = true; };
     }
-  }, [messages]);
+  }, [hasTTS]);
 
-  const sendMessage = (text: string) => {
-    if (!text.trim()) return;
-    const userMsg: Message = { id: Date.now().toString(), type: 'user', text, time: 'Just now' };
-    setMessages(prev => [...prev, userMsg]);
-    setInput('');
+  useEffect(() => {
+    const handler = () => setOpen(true);
+    window.addEventListener('carenetra:open-agent-chat', handler);
+    return () => window.removeEventListener('carenetra:open-agent-chat', handler);
+  }, []);
 
-    // Simulate agent response
-    setTimeout(() => {
-      const agentMsg: Message = {
-        id: (Date.now() + 1).toString(),
-        type: 'agent',
-        text: "Thanks for your response! I've recorded that. Anything else you'd like to share?",
-        time: 'Just now',
-        options: ['No, that\'s all', 'I have a concern', 'Talk to my doctor'],
-      };
-      setMessages(prev => [...prev, agentMsg]);
-    }, 1500);
+  useEffect(() => {
+    if (open && phase === 'idle' && messages.length === 0) initChat();
+  }, [open]); // eslint-disable-line
+
+  // ── TTS ───────────────────────────────────────────────────────────────────────
+
+  const speak = useCallback((text: string) => {
+    if (!hasTTS || !ttsEnabled) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    const voices    = window.speechSynthesis.getVoices();
+    const preferred = voices.find(v =>
+      v.name.includes('Samantha') || v.name.includes('Karen') || v.name.includes('Victoria') ||
+      (v.lang.startsWith('en') && v.name.toLowerCase().includes('female'))
+    ) || voices.find(v => v.lang === 'en-US' || v.lang === 'en-GB');
+    if (preferred) utterance.voice = preferred;
+    utterance.rate    = 0.92;
+    utterance.pitch   = 1.08;
+    utterance.onstart = () => setIsSpeaking(true);
+    utterance.onend   = () => setIsSpeaking(false);
+    utterance.onerror = () => setIsSpeaking(false);
+    window.speechSynthesis.speak(utterance);
+  }, [hasTTS, ttsEnabled]);
+
+  const addMsg = useCallback((msg: ChatMessage) => {
+    setMessages(prev => [
+      ...prev.map(m => ({ ...m, isLatest: false })),
+      { ...msg, isLatest: true },
+    ]);
+  }, []);
+
+  // Uses q.question — the backend field name from caretaker_agent
+  const displayQuestion = useCallback((q: Question) => {
+    setCurrentQ(q);
+    addMsg({
+      role:         'cara',
+      content:      q.question,
+      options:      ['mcq', 'yesno', 'scale'].includes(q.type) ? q.options : undefined,
+      questionType: q.type,
+      isLatest:     true,
+    });
+    speak(q.question);
+    setPhase(q.type === 'photo' ? 'photo' : 'chatting');
+  }, [addMsg, speak]);
+
+  // ── Session flow ──────────────────────────────────────────────────────────────
+
+  const initChat = async () => {
+    setPhase('starting');
+    try {
+      const res = await conversationApi.getActive();
+      // key: has_active_session — matches fixed backend
+      if (res.data.has_active_session && res.data.session_id) {
+        setSessionId(res.data.session_id);
+        addMsg({ role: 'cara', content: "Welcome back! Let's continue your check-in." });
+        speak("Welcome back! Let's continue.");
+        const q = res.data.first_question as Question;
+        if (q) {
+          setQuestions([q]);
+          setCurrentQIndex(0);
+          setTimeout(() => displayQuestion(q), 700);
+        } else {
+          setPhase('idle');
+        }
+      } else {
+        addMsg({
+          role:    'cara',
+          content: "Hi! I'm CARA, your personal health companion. I'll ask you a few quick questions about how you're feeling today.",
+        });
+        speak("Hi! I'm CARA. Press Start whenever you're ready.");
+        setPhase('idle');
+      }
+    } catch {
+      addMsg({ role: 'cara', content: "Hi! I'm CARA. Press Start whenever you're ready." });
+      setPhase('idle');
+    }
   };
+
+  const startSession = async () => {
+    setPhase('starting');
+    try {
+      const res = await conversationApi.start();
+      setSessionId(res.data.session_id);
+      const qs: Question[] = res.data.questions || [];
+      setQuestions(qs);
+      setCurrentQIndex(0);
+
+      // Show the real greeting from backend (uses patient's actual DB name)
+      if (res.data.message) {
+        addMsg({ role: 'cara', content: res.data.message });
+        speak(res.data.message);
+        setTimeout(() => { if (qs.length > 0) displayQuestion(qs[0]); }, 1200);
+      } else if (qs.length > 0) {
+        displayQuestion(qs[0]);
+      }
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Failed to start check-in. Please try again.');
+      setPhase('idle');
+    }
+  };
+
+  // ── Answer flow — advances through local questions array ─────────────────────
+
+  const submitAnswer = async (answer: string) => {
+    if (!sessionId || !currentQ || phase === 'submitting') return;
+
+    recognitionRef.current?.stop();
+    window.speechSynthesis.cancel();
+    setIsListening(false);
+    addMsg({ role: 'patient', content: answer });
+    setTextInput('');
+    setPhase('submitting');
+
+    try {
+      await conversationApi.answer(sessionId, currentQ.id, answer);
+
+      const nextIndex = currentQIndex + 1;
+      if (nextIndex < questions.length) {
+        setCurrentQIndex(nextIndex);
+        displayQuestion(questions[nextIndex]);
+      } else {
+        const msg = "Thank you! I'm now reviewing your check-in...";
+        addMsg({ role: 'cara', content: msg });
+        speak(msg);
+        await runPipeline();
+      }
+    } catch {
+      toast.error('Failed to submit answer. Please try again.');
+      setPhase('chatting');
+    }
+  };
+
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !sessionId || !currentQ) return;
+
+    addMsg({ role: 'patient', content: '📷 Wound photo uploaded' });
+    setPhase('submitting');
+
+    try {
+      await conversationApi.uploadWound(sessionId, file);
+      await conversationApi.answer(sessionId, currentQ.id, 'photo_uploaded');
+
+      const nextIndex = currentQIndex + 1;
+      if (nextIndex < questions.length) {
+        setCurrentQIndex(nextIndex);
+        displayQuestion(questions[nextIndex]);
+      } else {
+        const msg = "Got it! Reviewing your check-in now...";
+        addMsg({ role: 'cara', content: msg });
+        speak(msg);
+        await runPipeline();
+      }
+    } catch {
+      toast.error('Photo upload failed. Please try again.');
+      setPhase('photo');
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const runPipeline = async () => {
+    if (!sessionId) return;
+    setPhase('submitting');
+    try {
+      const res = await conversationApi.submit(sessionId);
+      // keys: risk_tier + friendly_message — both present in fixed backend
+      const tier    = (res.data.risk_tier as string) || 'GREEN';
+      const message = res.data.friendly_message || "Check-in complete. Take care!";
+      setFinalTier(tier);
+      addMsg({ role: 'cara', content: message });
+      speak(message);
+      setPhase('done');
+    } catch {
+      addMsg({ role: 'cara', content: "I've recorded your check-in. Your doctor will review your responses shortly." });
+      setPhase('done');
+    }
+  };
+
+  // ── STT ───────────────────────────────────────────────────────────────────────
+
+  const startListening = useCallback(() => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) return;
+    window.speechSynthesis.cancel();
+    const rec          = new SR();
+    rec.lang           = 'en-US';
+    rec.interimResults = false;
+    rec.onresult = (e: any) => { setTextInput(e.results[0][0].transcript); setIsListening(false); };
+    rec.onerror  = () => setIsListening(false);
+    rec.onend    = () => setIsListening(false);
+    recognitionRef.current = rec;
+    rec.start();
+    setIsListening(true);
+  }, []);
+
+  const stopListening = useCallback(() => {
+    recognitionRef.current?.stop();
+    setIsListening(false);
+  }, []);
+
+  const handleClose = () => {
+    window.speechSynthesis.cancel();
+    recognitionRef.current?.stop();
+    setOpen(false);
+  };
+
+  const resetChat = () => {
+    window.speechSynthesis.cancel();
+    recognitionRef.current?.stop();
+    setPhase('idle');
+    setSessionId(null);
+    setCurrentQ(null);
+    setQuestions([]);
+    setCurrentQIndex(0);
+    setMessages([]);
+    setTextInput('');
+    setFinalTier(null);
+    setIsListening(false);
+  };
+
+  const progressPct = phase === 'done' ? 100
+    : questions.length === 0 ? 0
+    : Math.round((currentQIndex / questions.length) * 100);
+
+  const tierInfo = finalTier ? TIER_CONFIG[finalTier as keyof typeof TIER_CONFIG] : null;
 
   return (
     <>
       <AnimatePresence>
         {open && (
           <motion.div
-            initial={{ opacity: 0, y: 20, scale: 0.95 }}
+            initial={{ opacity: 0, y: 24, scale: 0.96 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 20, scale: 0.95 }}
-            className="fixed bottom-24 right-4 sm:right-6 w-[calc(100vw-2rem)] sm:w-96 h-[500px] glass-card flex flex-col z-50 shadow-xl"
+            exit={{ opacity: 0, y: 24, scale: 0.96 }}
+            transition={{ type: 'spring', stiffness: 300, damping: 28 }}
+            className="fixed bottom-24 right-4 sm:right-6 w-[calc(100vw-2rem)] sm:w-[420px] h-[580px] glass-card flex flex-col z-50 shadow-2xl overflow-hidden rounded-2xl"
           >
-            <div className="flex items-center justify-between p-4 border-b border-border">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-full gradient-primary flex items-center justify-center">
-                  <MessageCircle size={14} className="text-primary-foreground" />
+            {/* Header */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="relative w-9 h-9 rounded-full gradient-primary flex items-center justify-center shrink-0">
+                  <MessageCircle size={15} className="text-primary-foreground" />
+                  {isSpeaking && (
+                    <motion.span
+                      animate={{ scale: [1, 1.3, 1] }}
+                      transition={{ repeat: Infinity, duration: 1 }}
+                      className="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-400"
+                    />
+                  )}
                 </div>
                 <div>
-                  <p className="text-sm font-semibold text-foreground">Care Agent</p>
-                  <p className="text-xs text-success">Online</p>
+                  <p className="text-sm font-semibold leading-tight">CARA</p>
+                  <p className="text-xs text-muted-foreground leading-tight">
+                    {phase === 'done' ? 'Check-in complete ✓'
+                    : phase === 'starting' ? 'Preparing your check-in...'
+                    : phase === 'submitting' ? 'Processing...'
+                    : 'Your health companion'}
+                  </p>
                 </div>
               </div>
-              <button onClick={() => setOpen(false)} className="text-muted-foreground hover:text-foreground"><X size={18} /></button>
+              <div className="flex items-center gap-1">
+                {hasTTS && (
+                  <button
+                    onClick={() => { setTtsEnabled(e => !e); window.speechSynthesis.cancel(); }}
+                    className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+                  >
+                    {ttsEnabled ? <Volume2 size={15} /> : <VolumeX size={15} />}
+                  </button>
+                )}
+                {phase === 'done' && (
+                  <button onClick={resetChat} className="text-xs text-primary hover:underline px-2 py-1">
+                    New check-in
+                  </button>
+                )}
+                <button onClick={handleClose} className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors">
+                  <X size={15} />
+                </button>
+              </div>
             </div>
 
-            <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3">
-              {messages.map((msg) => (
-                <div key={msg.id} className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm ${
-                    msg.type === 'user' 
-                      ? 'bg-primary text-primary-foreground rounded-br-md' 
-                      : 'bg-muted text-foreground rounded-bl-md'
-                  }`}>
-                    <p>{msg.text}</p>
-                    <p className={`text-[10px] mt-1 ${msg.type === 'user' ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>{msg.time}</p>
-                    {msg.options && (
-                      <div className="flex flex-wrap gap-1.5 mt-2">
-                        {msg.options.map((opt) => (
-                          <button key={opt} onClick={() => sendMessage(opt)} className="text-xs px-3 py-1.5 rounded-full border border-border bg-background text-foreground hover:bg-muted transition-colors">{opt}</button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
+            {/* Progress */}
+            <div className="h-0.5 bg-muted shrink-0">
+              <motion.div
+                className="h-full gradient-primary"
+                initial={{ width: 0 }}
+                animate={{ width: `${progressPct}%` }}
+                transition={{ duration: 0.5, ease: 'easeOut' }}
+              />
             </div>
 
-            <div className="p-3 border-t border-border">
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setRecording(!recording)}
-                  className={`p-2.5 rounded-full transition-colors ${recording ? 'bg-destructive text-destructive-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'}`}
+            {/* Messages */}
+            <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+              {messages.map((msg, idx) => (
+                <motion.div
+                  key={idx}
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.2 }}
+                  className={`flex flex-col gap-1.5 ${msg.role === 'patient' ? 'items-end' : 'items-start'}`}
                 >
-                  <Mic size={16} />
-                  {recording && <span className="absolute inset-0 rounded-full animate-pulse-ring bg-destructive/30" />}
-                </button>
-                <input
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && sendMessage(input)}
-                  placeholder="Type a message..."
-                  className="flex-1 bg-muted rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-ring/30"
-                />
-                <button onClick={() => sendMessage(input)} className="p-2.5 rounded-full bg-primary text-primary-foreground hover:opacity-90 transition-opacity">
-                  <Send size={16} />
-                </button>
-              </div>
+                  <div className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
+                    msg.role === 'patient'
+                      ? 'bg-primary text-primary-foreground rounded-br-sm'
+                      : 'bg-muted text-foreground rounded-bl-sm'
+                  }`}>
+                    {msg.content}
+                  </div>
+
+                  {msg.role === 'cara' && msg.options && msg.isLatest && phase === 'chatting' && (
+                    <div className="flex flex-wrap gap-1.5 max-w-[85%]">
+                      {msg.options.map(opt => (
+                        <motion.button
+                          key={opt}
+                          initial={{ opacity: 0, scale: 0.9 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          whileHover={{ scale: 1.03 }}
+                          whileTap={{ scale: 0.97 }}
+                          onClick={() => submitAnswer(opt)}
+                          className="text-xs px-3 py-1.5 rounded-full border border-primary/30 bg-primary/5 text-foreground hover:bg-primary/15 hover:border-primary/60 transition-all"
+                        >
+                          {opt}
+                        </motion.button>
+                      ))}
+                    </div>
+                  )}
+
+                  {msg.role === 'cara' && msg.questionType === 'photo' && msg.isLatest && phase === 'photo' && (
+                    <motion.button
+                      initial={{ opacity: 0, scale: 0.9 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      onClick={() => fileInputRef.current?.click()}
+                      className="flex items-center gap-2 text-xs px-4 py-2 rounded-xl border border-primary/40 bg-primary/10 text-primary hover:bg-primary/20 transition-all"
+                    >
+                      <Upload size={13} /> Upload wound photo
+                    </motion.button>
+                  )}
+                </motion.div>
+              ))}
+
+              {(phase === 'starting' || phase === 'submitting') && (
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex justify-start">
+                  <div className="bg-muted rounded-2xl rounded-bl-sm px-4 py-3 flex items-center gap-1.5">
+                    {[0, 120, 240].map(d => (
+                      <span key={d} className="w-1.5 h-1.5 rounded-full bg-muted-foreground/50 animate-bounce" style={{ animationDelay: `${d}ms` }} />
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+
+              {phase === 'idle' && messages.length > 0 && (
+                <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="flex justify-center pt-2">
+                  <button
+                    onClick={startSession}
+                    className="px-6 py-2.5 rounded-xl gradient-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity shadow-md"
+                  >
+                    Start Check-in
+                  </button>
+                </motion.div>
+              )}
+
+              {phase === 'done' && tierInfo && (
+                <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="flex justify-center pt-2">
+                  <div className="border border-border rounded-xl px-5 py-3 text-center bg-muted/40 space-y-1">
+                    <div className="text-2xl">{tierInfo.icon}</div>
+                    <p className={`text-sm font-semibold ${tierInfo.color}`}>{tierInfo.label}</p>
+                    <p className="text-xs text-muted-foreground">Check-in recorded</p>
+                  </div>
+                </motion.div>
+              )}
             </div>
+
+            {/* Text input bar */}
+            <AnimatePresence>
+              {phase === 'chatting' && currentQ?.type === 'text' && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 10 }}
+                  className="px-3 pb-3 pt-2 border-t border-border shrink-0"
+                >
+                  <div className="flex items-center gap-2">
+                    {hasMic && (
+                      <button
+                        onClick={isListening ? stopListening : startListening}
+                        className={`relative p-2.5 rounded-full transition-colors flex-shrink-0 ${
+                          isListening ? 'bg-destructive text-destructive-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        {isListening ? <MicOff size={15} /> : <Mic size={15} />}
+                        {isListening && <span className="absolute inset-0 rounded-full animate-ping bg-destructive/25 pointer-events-none" />}
+                      </button>
+                    )}
+                    <input
+                      value={textInput}
+                      onChange={e => setTextInput(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter' && textInput.trim()) submitAnswer(textInput.trim()); }}
+                      placeholder={isListening ? 'Listening…' : 'Type your answer…'}
+                      autoFocus
+                      className="flex-1 bg-muted rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-ring/30"
+                    />
+                    <button
+                      onClick={() => textInput.trim() && submitAnswer(textInput.trim())}
+                      disabled={!textInput.trim()}
+                      className="p-2.5 rounded-full bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-40 transition-opacity flex-shrink-0"
+                    >
+                      <Send size={15} />
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </motion.div>
         )}
       </AnimatePresence>
 
-      <button
-        onClick={() => setOpen(!open)}
-        className="fixed bottom-6 right-4 sm:right-6 z-50 w-14 h-14 rounded-full gradient-primary shadow-lg flex items-center justify-center hover:opacity-90 transition-all hover:scale-105"
+      <motion.button
+        onClick={() => setOpen(o => !o)}
+        whileHover={{ scale: 1.06 }}
+        whileTap={{ scale: 0.94 }}
+        className="fixed bottom-6 right-4 sm:right-6 z-50 w-14 h-14 rounded-full gradient-primary shadow-lg flex items-center justify-center"
       >
-        {open ? <X size={22} className="text-primary-foreground" /> : <MessageCircle size={22} className="text-primary-foreground" />}
-      </button>
+        <AnimatePresence mode="wait">
+          {open
+            ? <motion.span key="x" initial={{ rotate: -80, opacity: 0 }} animate={{ rotate: 0, opacity: 1 }} exit={{ rotate: 80, opacity: 0 }} transition={{ duration: 0.15 }}><X size={22} className="text-primary-foreground" /></motion.span>
+            : <motion.span key="c" initial={{ rotate: 80, opacity: 0 }} animate={{ rotate: 0, opacity: 1 }} exit={{ rotate: -80, opacity: 0 }} transition={{ duration: 0.15 }}><MessageCircle size={22} className="text-primary-foreground" /></motion.span>
+          }
+        </AnimatePresence>
+      </motion.button>
+
+      <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={handlePhotoUpload} className="hidden" />
     </>
   );
 };
