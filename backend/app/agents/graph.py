@@ -16,11 +16,11 @@ import logging
 from langgraph.graph import StateGraph, END, START
 
 from app.agents.state import AgentState
-from app.agents.nodes.symptom_agent    import symptom_agent_node
-from app.agents.nodes.vision_agent     import vision_agent_node
-from app.agents.nodes.risk_agent       import risk_agent_node
-from app.agents.nodes.escalation_agent import escalation_agent_node
-from app.agents.nodes.monitoring_agent import monitoring_agent_node
+from app.nodes.symptom_agent import symptom_agent_node
+from app.nodes.vision_agent import vision_agent_node
+from app.nodes.risk_agent import risk_agent_node
+from app.nodes.escalation_agent import escalation_agent_node
+from app.nodes.monitoring_agent import monitoring_agent_node
 
 logger = logging.getLogger(__name__)
 

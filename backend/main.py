@@ -16,9 +16,8 @@ from app.models.models import (
 
 # Routers
 from app.routers.auth import router as auth_router
-# Future routers (uncomment as we build them):
-# from app.routers.patient import router as patient_router
-# from app.routers.doctor import router as doctor_router
+from app.routers.patient import router as patient_router
+from app.routers.doctor import router as doctor_router
 # from app.routers.agent import router as agent_router
 
 
@@ -46,8 +45,8 @@ def create_app() -> FastAPI:
 
     # ── Routers ──
     app.include_router(auth_router, prefix="/api")
-    # app.include_router(patient_router, prefix="/api")
-    # app.include_router(doctor_router, prefix="/api")
+    app.include_router(patient_router, prefix="/api")
+    app.include_router(doctor_router, prefix="/api")
     # app.include_router(agent_router, prefix="/api")
 
     # ── Health check ──

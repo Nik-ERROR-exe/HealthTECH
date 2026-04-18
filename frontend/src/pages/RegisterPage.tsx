@@ -5,11 +5,10 @@ import { motion } from 'framer-motion';
 import { Eye, EyeOff, Mail, Lock, User } from 'lucide-react';
 import { toast } from 'sonner';
 import api from '@/lib/api';
-import { setAuth, getDashboardPath } from '@/lib/auth';
 import Navbar from '@/components/Navbar';
 
 interface RegisterForm {
-  name: string;
+  full_name: string;
   email: string;
   password: string;
   role: 'DOCTOR' | 'PATIENT';
@@ -25,17 +24,20 @@ const RegisterPage = () => {
   const onSubmit = async (data: RegisterForm) => {
     setLoading(true);
     try {
-      const res = await api.post('/auth/register', data);
-      setAuth(res.data.token, res.data.user);
-      toast.success('Account created!');
-      navigate(getDashboardPath(res.data.user.role));
-    } catch {
-      const demoUser = { id: 'demo1', name: data.name, email: data.email, role: data.role, patient_id: data.role === 'PATIENT' ? 'CN-2024-' + Math.floor(1000 + Math.random() * 9000) : undefined };
-      setAuth('demo-token', demoUser);
-      toast.success('Account created (demo mode)');
-      navigate(getDashboardPath(demoUser.role));
+      await api.post('/auth/register', {
+        full_name: data.full_name,
+        email: data.email,
+        password: data.password,
+        role: data.role,
+      });
+      toast.success('Account created! Please sign in.');
+      navigate('/login');
+    } catch (err: any) {
+      const msg = err.response?.data?.detail || 'Registration failed. Please try again.';
+      toast.error(msg);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   return (
@@ -63,9 +65,9 @@ const RegisterPage = () => {
               <label className="text-sm font-medium text-foreground mb-1.5 block">Full Name</label>
               <div className="relative">
                 <User size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                <input {...register('name', { required: 'Name is required' })} placeholder="John Doe" className="w-full pl-10 pr-4 py-2.5 rounded-lg bg-muted border border-border text-foreground text-sm placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-ring/30" />
+                <input {...register('full_name', { required: 'Name is required' })} placeholder="John Doe" className="w-full pl-10 pr-4 py-2.5 rounded-lg bg-muted border border-border text-foreground text-sm placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-ring/30" />
               </div>
-              {errors.name && <p className="text-xs text-destructive mt-1">{errors.name.message}</p>}
+              {errors.full_name && <p className="text-xs text-destructive mt-1">{errors.full_name.message}</p>}
             </div>
 
             <div>
@@ -81,7 +83,7 @@ const RegisterPage = () => {
               <label className="text-sm font-medium text-foreground mb-1.5 block">Password</label>
               <div className="relative">
                 <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                <input {...register('password', { required: 'Password is required', minLength: { value: 6, message: 'Min 6 characters' } })} type={showPass ? 'text' : 'password'} placeholder="••••••••" className="w-full pl-10 pr-10 py-2.5 rounded-lg bg-muted border border-border text-foreground text-sm placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-ring/30" />
+                <input {...register('password', { required: 'Password is required', minLength: { value: 8, message: 'Min 8 characters' } })} type={showPass ? 'text' : 'password'} placeholder="••••••••" className="w-full pl-10 pr-10 py-2.5 rounded-lg bg-muted border border-border text-foreground text-sm placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-ring/30" />
                 <button type="button" onClick={() => setShowPass(!showPass)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">{showPass ? <EyeOff size={16} /> : <Eye size={16} />}</button>
               </div>
               {errors.password && <p className="text-xs text-destructive mt-1">{errors.password.message}</p>}

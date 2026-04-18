@@ -23,22 +23,23 @@ const LoginPage = () => {
     setLoading(true);
     try {
       const res = await api.post('/auth/login', data);
-      setAuth(res.data.token, res.data.user);
-      toast.success('Welcome back!');
-      navigate(getDashboardPath(res.data.user.role));
-    } catch {
-      // Demo fallback
-      const demoUser = {
-        id: 'demo1',
-        name: 'Demo Doctor',
+      const { access_token, role, user_id, full_name, unique_uid } = res.data;
+      const user = {
+        id: user_id,
+        name: full_name,
         email: data.email,
-        role: data.email.includes('patient') ? 'PATIENT' as const : 'DOCTOR' as const,
+        role: role as 'DOCTOR' | 'PATIENT',
+        patient_id: unique_uid || undefined,
       };
-      setAuth('demo-token', demoUser);
-      toast.success('Logged in (demo mode)');
-      navigate(getDashboardPath(demoUser.role));
+      setAuth(access_token, user);
+      toast.success('Welcome back!');
+      navigate(getDashboardPath(user.role));
+    } catch (err: any) {
+      const msg = err.response?.data?.detail || 'Login failed. Please check your credentials.';
+      toast.error(msg);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   return (
@@ -99,12 +100,6 @@ const LoginPage = () => {
           <p className="text-center text-sm text-muted-foreground mt-6">
             Don't have an account? <Link to="/register" className="text-primary font-medium hover:underline">Sign up</Link>
           </p>
-
-          <div className="mt-4 p-3 rounded-lg bg-muted/50 border border-border">
-            <p className="text-xs text-muted-foreground text-center">
-              <strong>Demo:</strong> Use any email with "patient" for patient view, otherwise doctor view
-            </p>
-          </div>
         </motion.div>
       </div>
     </div>

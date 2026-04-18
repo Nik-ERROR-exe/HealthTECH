@@ -1,11 +1,17 @@
 """
 Node 2 — Vision Analysis Agent
-Only runs if has_wound_image is True.
-Encodes wound photo to base64, sends to NVIDIA vision model.
-Extracts severity, clinical signs, and wound_score (0–10).
-Saves result to wound_analyses table.
+Analyses a wound photo using moondream (local Ollama vision model).
+
+moondream is a small vision model — it answers plain questions about images
+well but doesn't reliably produce structured JSON output. So this node:
+  1. Sends a plain-question prompt (no JSON schema instruction)
+  2. Reads the plain-text response
+  3. Maps it locally to a structured WoundAnalysis record using keyword detection
+  4. Derives a wound_score (0–10) from detected findings
+
+This "ask then classify locally" approach is more reliable than asking a small
+vision model to produce JSON directly.
 """
-import json
 import base64
 import logging
 from pathlib import Path
@@ -18,80 +24,169 @@ from app.models.models import WoundAnalysis, WoundSeverity
 
 logger = logging.getLogger(__name__)
 
-VISION_SYSTEM_PROMPT = """You are a clinical wound assessment AI assistant.
 
-Analyze the provided wound image and return ONLY a valid JSON object with no extra text, no markdown:
+# ── Prompt — plain questions, no JSON schema ──────────────────────────────────
+# moondream works best with direct, concrete questions.
+# We ask three yes/no questions in one shot to keep it to one API call.
 
-{
-  "severity": "<one of: NORMAL, MILD, MODERATE, SEVERE>",
-  "redness_detected": <true or false>,
-  "swelling_detected": <true or false>,
-  "texture_change_detected": <true or false>,
-  "analysis_summary": "<2-3 sentence clinical description of what you observe>",
-  "wound_score": <float 0.0-10.0>
-}
-
-Severity and wound_score mapping:
-- NORMAL (score 0-1): No signs of infection. Healing appears normal.
-- MILD (score 2-4): Minor redness or slight swelling. Likely normal post-surgical response.
-- MODERATE (score 5-7): Noticeable redness, swelling, or texture change. Monitor closely.
-- SEVERE (score 8-10): Clear signs of infection — significant redness, pus, open areas, or necrosis.
-
-Be objective and clinical. Do not diagnose. Only describe observable signs.
-Return ONLY the JSON object."""
+VISION_PROMPT = (
+    "Look at this wound or surgical site photo carefully. "
+    "Answer these three questions with yes or no, then add a brief explanation:\n\n"
+    "1. Is there visible redness or inflammation around the wound?\n"
+    "2. Is there visible swelling or raised tissue?\n"
+    "3. Are there any abnormal textures such as discharge, crusting, or unusual colour?\n\n"
+    "Keep your answer short and factual."
+)
 
 
-def _encode_image_to_base64(image_path: str) -> str:
-    with open(image_path, "rb") as f:
-        return base64.b64encode(f.read()).decode("utf-8")
+# ── Local classification from plain-text response ────────────────────────────
 
+def _parse_vision_response(raw_text: str) -> dict:
+    """
+    Maps moondream's plain-text response to structured findings.
+    Keyword-based — designed for the specific three-question prompt above.
+    Returns a dict with: redness, swelling, texture_change, severity, score, summary
+    """
+    text_lower = raw_text.lower()
 
-def _get_image_media_type(image_path: str) -> str:
-    suffix = Path(image_path).suffix.lower()
+    # ── Detect findings via keywords ──────────────────────────────
+
+    # Redness
+    redness = (
+        any(kw in text_lower for kw in ["yes", "redness", "red", "inflam", "pink", "flush"])
+        and not _is_negated("redness", text_lower)
+        and not _is_negated("redness", text_lower)
+    )
+    # Re-check: if "no" appears near "redness" in Q1 context, override
+    lines = raw_text.strip().split("\n")
+    if lines:
+        q1_line = lines[0].lower() if len(lines) >= 1 else ""
+        redness = _answer_is_yes(q1_line)
+
+    # Swelling
+    swelling = False
+    if len(lines) >= 2:
+        q2_line = lines[1].lower()
+        swelling = _answer_is_yes(q2_line)
+
+    # Texture change
+    texture_change = False
+    if len(lines) >= 3:
+        q3_line = lines[2].lower()
+        texture_change = _answer_is_yes(q3_line)
+
+    # Fallback: scan full text if line-based parsing yielded no findings at all
+    if not redness and not swelling and not texture_change:
+        redness        = any(kw in text_lower for kw in ["redness", "red ", "inflam", "irritat"])
+        swelling       = any(kw in text_lower for kw in ["swelling", "swollen", "raised", "puffy"])
+        texture_change = any(kw in text_lower for kw in ["discharge", "crust", "abnormal", "unusual", "pus", "oozing"])
+
+    # ── Score derivation (0–10 scale) ────────────────────────────
+    # Base score from number of positive findings
+    finding_count = sum([redness, swelling, texture_change])
+
+    if finding_count == 0:
+        score    = 1.0
+        severity = WoundSeverity.NORMAL
+    elif finding_count == 1:
+        score    = 3.5
+        severity = WoundSeverity.MILD
+    elif finding_count == 2:
+        score    = 6.5
+        severity = WoundSeverity.MODERATE
+    else:  # all 3
+        score    = 8.5
+        severity = WoundSeverity.SEVERE
+
+    # Boost score if high-severity keywords present in full response
+    if any(kw in text_lower for kw in ["pus", "discharge", "infection", "necrosis", "very red", "severely"]):
+        score = min(10.0, score + 1.5)
+
+    # ── Build patient-friendly summary ───────────────────────────
+    findings_found = []
+    if redness:        findings_found.append("redness")
+    if swelling:       findings_found.append("swelling")
+    if texture_change: findings_found.append("unusual texture")
+
+    if not findings_found:
+        summary = "Wound appears clean with no signs of infection detected."
+    elif finding_count == 1:
+        summary = f"Wound shows some {findings_found[0]}. Worth monitoring but not immediately alarming."
+    else:
+        summary = f"Wound shows {' and '.join(findings_found)}. Doctor has been notified to review."
+
     return {
-        ".jpg":  "image/jpeg",
-        ".jpeg": "image/jpeg",
-        ".png":  "image/png",
-        ".webp": "image/webp",
-    }.get(suffix, "image/jpeg")
+        "redness":        redness,
+        "swelling":       swelling,
+        "texture_change": texture_change,
+        "severity":       severity,
+        "score":          round(score, 1),
+        "summary":        summary,
+        "raw_response":   raw_text,
+    }
 
+
+def _answer_is_yes(line: str) -> bool:
+    """Returns True if a single Q&A line indicates a positive finding."""
+    strong_yes = ["yes", "visible", "present", "detected", "apparent", "notable"]
+    strong_no  = ["no ", "none", "not ", "no visible", "no sign", "cannot", "can't", "doesn't", "absent"]
+    has_yes    = any(kw in line for kw in strong_yes)
+    has_no     = any(kw in line for kw in strong_no)
+    return has_yes and not has_no
+
+
+def _is_negated(keyword: str, text: str) -> bool:
+    """Crude negation check — looks for 'no <keyword>' pattern."""
+    return f"no {keyword}" in text or f"not {keyword}" in text
+
+
+# ── Agent node ────────────────────────────────────────────────────────────────
 
 async def vision_agent_node(state: AgentState) -> AgentState:
     """
-    Analyzes wound image using NVIDIA vision model.
-    Skips gracefully if image path is invalid.
+    Runs wound photo through moondream vision model locally via Ollama.
+    Stores a WoundAnalysis record and updates AgentState.
     """
     logger.info(f"[VisionAgent] Starting for patient {state['patient_id']}")
     errors = list(state.get("errors", []))
 
-    wound_image_path = state.get("wound_image_path")
-
-    if not wound_image_path or not Path(wound_image_path).exists():
-        logger.warning(f"[VisionAgent] Image not found at {wound_image_path}")
-        errors.append("VisionAgent: wound image file not found")
+    wound_path = state.get("wound_image_path")
+    if not wound_path or not Path(wound_path).exists():
+        logger.warning(f"[VisionAgent] Wound image path not found: {wound_path}")
         return {
             **state,
-            "wound_severity":         "NORMAL",
-            "wound_score":            0.0,
-            "wound_analysis_id":      None,
-            "redness_detected":       False,
-            "swelling_detected":      False,
+            "wound_severity": "NORMAL",
+            "wound_score": 0.0,
+            "redness_detected": False,
+            "swelling_detected": False,
             "texture_change_detected": False,
-            "wound_analysis_summary": "Image not available for analysis.",
+            "wound_analysis_summary": "No wound image available for analysis.",
             "errors": errors,
         }
 
-    # ── Encode image ─────────────────────────────────────────────
+    # ── Load and encode image ─────────────────────────────────────
     try:
-        image_b64  = _encode_image_to_base64(wound_image_path)
-        media_type = _get_image_media_type(wound_image_path)
-        data_url   = f"data:{media_type};base64,{image_b64}"
+        with open(wound_path, "rb") as f:
+            image_bytes = f.read()
+
+        base64_image = base64.b64encode(image_bytes).decode("utf-8")
+
+        # Detect MIME type from extension
+        ext_map = {
+            "jpg": "image/jpeg", "jpeg": "image/jpeg",
+            "png": "image/png", "webp": "image/webp",
+            "heic": "image/heic", "heif": "image/heif",
+        }
+        ext      = wound_path.rsplit(".", 1)[-1].lower()
+        mime     = ext_map.get(ext, "image/jpeg")
+        data_url = f"data:{mime};base64,{base64_image}"
+
     except Exception as e:
-        logger.error(f"[VisionAgent] Image encoding failed: {e}")
-        errors.append(f"VisionAgent image encoding failed: {e}")
+        logger.error(f"[VisionAgent] Failed to read image: {e}")
+        errors.append(f"VisionAgent image read failed: {e}")
         return {**state, "wound_score": 0.0, "wound_severity": "NORMAL", "errors": errors}
 
-    # ── Call NVIDIA Vision Model ──────────────────────────────────
+    # ── Call moondream via Ollama ─────────────────────────────────
     try:
         response = await vision_client.chat.completions.create(
             model=VISION_MODEL,
@@ -105,74 +200,50 @@ async def vision_agent_node(state: AgentState) -> AgentState:
                         },
                         {
                             "type": "text",
-                            "text": "Analyze this wound image and return the JSON assessment as instructed.",
+                            "text": VISION_PROMPT,
                         },
                     ],
                 }
             ],
+            max_tokens=250,
             temperature=0.1,
-            max_tokens=500,
         )
 
-        raw_json = response.choices[0].message.content.strip()
+        raw_response = response.choices[0].message.content.strip()
+        logger.info(f"[VisionAgent] Raw response: {raw_response[:150]}")
 
-        if raw_json.startswith("```"):
-            raw_json = raw_json.split("```")[1]
-            if raw_json.startswith("json"):
-                raw_json = raw_json[4:]
-        raw_json = raw_json.strip()
-
-        result: dict = json.loads(raw_json)
-        logger.info(f"[VisionAgent] Analysis result: {result}")
-
-    except json.JSONDecodeError as e:
-        logger.error(f"[VisionAgent] JSON parse error: {e}")
-        errors.append(f"VisionAgent JSON parse failed: {e}")
-        result = {}
     except Exception as e:
-        logger.error(f"[VisionAgent] Vision API call failed: {e}")
-        errors.append(f"VisionAgent API call failed: {e}")
-        result = {}
+        logger.error(f"[VisionAgent] Vision model call failed: {e}")
+        errors.append(f"VisionAgent LLM call failed: {e}")
+        return {**state, "wound_score": 0.0, "wound_severity": "NORMAL", "errors": errors}
 
-    # ── Parse result with safe defaults ──────────────────────────
-    severity_str = result.get("severity", "NORMAL").upper()
-    valid_severities = {"NORMAL", "MILD", "MODERATE", "SEVERE"}
-    if severity_str not in valid_severities:
-        severity_str = "NORMAL"
+    # ── Parse response locally ────────────────────────────────────
+    findings = _parse_vision_response(raw_response)
 
-    wound_score              = max(0.0, min(10.0, float(result.get("wound_score") or 0.0)))
-    redness_detected         = bool(result.get("redness_detected", False))
-    swelling_detected        = bool(result.get("swelling_detected", False))
-    texture_change_detected  = bool(result.get("texture_change_detected", False))
-    analysis_summary         = result.get("analysis_summary", "Analysis incomplete.")
-    raw_llm_response         = str(result)
-
-    # ── Save to wound_analyses table ─────────────────────────────
-    wound_analysis_id = None
+    # ── Persist WoundAnalysis to DB ───────────────────────────────
     db: Session = SessionLocal()
+    wound_analysis_id = None
     try:
-        # Store relative URL for frontend access
-        image_url = wound_image_path.replace("\\", "/")
-        if "uploads" in image_url:
-            image_url = "/" + image_url[image_url.index("uploads"):]
-
-        wound_record = WoundAnalysis(
-            patient_id              = state["patient_id"],
-            check_in_id             = state.get("check_in_id"),
-            image_url               = image_url,
-            severity                = WoundSeverity(severity_str),
-            raw_llm_response        = raw_llm_response,
-            redness_detected        = redness_detected,
-            swelling_detected       = swelling_detected,
-            texture_change_detected = texture_change_detected,
-            analysis_summary        = analysis_summary,
-            wound_score             = wound_score,
+        analysis = WoundAnalysis(
+            patient_id=state["patient_id"],
+            check_in_id=state["check_in_id"],
+            image_url=wound_path,
+            severity=findings["severity"],
+            raw_llm_response=findings["raw_response"],
+            redness_detected=findings["redness"],
+            swelling_detected=findings["swelling"],
+            texture_change_detected=findings["texture_change"],
+            analysis_summary=findings["summary"],
+            wound_score=findings["score"],
         )
-        db.add(wound_record)
+        db.add(analysis)
         db.commit()
-        db.refresh(wound_record)
-        wound_analysis_id = wound_record.id
-        logger.info(f"[VisionAgent] Saved wound_analysis {wound_analysis_id}")
+        db.refresh(analysis)
+        wound_analysis_id = analysis.id
+        logger.info(
+            f"[VisionAgent] WoundAnalysis saved — id={analysis.id} "
+            f"severity={findings['severity'].value} score={findings['score']}"
+        )
     except Exception as e:
         db.rollback()
         logger.error(f"[VisionAgent] DB write failed: {e}")
@@ -182,12 +253,12 @@ async def vision_agent_node(state: AgentState) -> AgentState:
 
     return {
         **state,
-        "wound_severity":           severity_str,
-        "wound_score":              wound_score,
-        "wound_analysis_id":        wound_analysis_id,
-        "redness_detected":         redness_detected,
-        "swelling_detected":        swelling_detected,
-        "texture_change_detected":  texture_change_detected,
-        "wound_analysis_summary":   analysis_summary,
-        "errors":                   errors,
+        "wound_severity":          findings["severity"].value,
+        "wound_score":             findings["score"],
+        "wound_analysis_id":       wound_analysis_id,
+        "redness_detected":        findings["redness"],
+        "swelling_detected":       findings["swelling"],
+        "texture_change_detected": findings["texture_change"],
+        "wound_analysis_summary":  findings["summary"],
+        "errors":                  errors,
     }

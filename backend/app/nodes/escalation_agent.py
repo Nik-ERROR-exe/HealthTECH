@@ -20,7 +20,7 @@ from app.models.models import (
     Alert, AlertType, AlertStatus,
     PatientProfile, DoctorProfile, MedicalCourse, User,
 )
-from app.services.alert_service import send_email_alert, send_sms_alert
+from services.alert_service import send_email_alert, send_sms_alert
 
 logger = logging.getLogger(__name__)
 

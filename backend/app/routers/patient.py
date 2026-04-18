@@ -24,7 +24,7 @@ from app.schemas.patient_doctor import (
     PatientProfileUpdate,
 )
 from app.agents.graph import run_agent_pipeline
-from app.services.transcription_service import transcribe_audio
+from services.transcription_service import transcribe_audio
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/patient", tags=["Patient"])
