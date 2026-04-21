@@ -10,6 +10,8 @@ class RegisterRequest(BaseModel):
     email: EmailStr
     password: str
     role: UserRole
+    phone:            Optional[str] = None
+    area_description: Optional[str] = None
 
     @field_validator("password")
     @classmethod

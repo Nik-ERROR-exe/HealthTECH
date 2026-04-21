@@ -36,6 +36,7 @@ class PatientDashboardResponse(BaseModel):
     last_check_in:     Optional[str]
     unread_messages:   int
     pending_question:  Optional[dict]  # agent session pending Q
+    emergency_contact_phone: Optional[str] = None
 
 
 class WoundUploadResponse(BaseModel):

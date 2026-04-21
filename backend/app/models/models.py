@@ -23,8 +23,9 @@ from app.database import Base
 # ─────────────────────────────────────────────
 
 class UserRole(str, PyEnum):
-    PATIENT = "PATIENT"
-    DOCTOR  = "DOCTOR"
+    PATIENT   = "PATIENT"
+    DOCTOR    = "DOCTOR"
+    VOLUNTEER = "VOLUNTEER"
 
 
 class RiskTier(str, PyEnum):
@@ -76,6 +77,12 @@ class WoundSeverity(str, PyEnum):
     SEVERE   = "SEVERE"
 
 
+class ImpactAlertStatus(str, PyEnum):
+    ACTIVE     = "ACTIVE"      # alert fired, no volunteer yet
+    RESPONDING = "RESPONDING"  # a volunteer confirmed they're going
+    RESOLVED   = "RESOLVED"    # manually resolved or patient confirmed okay
+
+
 # ─────────────────────────────────────────────
 # HELPER
 # ─────────────────────────────────────────────
@@ -123,6 +130,9 @@ class User(Base):
     )
     doctor_profile: Mapped["DoctorProfile"] = relationship(
         "DoctorProfile", back_populates="user", uselist=False, cascade="all, delete-orphan"
+    )
+    volunteer_profile: Mapped["VolunteerProfile"] = relationship(
+        "VolunteerProfile", back_populates="user", uselist=False, cascade="all, delete-orphan"
     )
 
 
@@ -206,6 +216,93 @@ class DoctorProfile(Base):
     alerts: Mapped[list["Alert"]] = relationship("Alert", back_populates="doctor")
     messages_sent: Mapped[list["DoctorMessage"]] = relationship(
         "DoctorMessage", foreign_keys="DoctorMessage.doctor_id", back_populates="doctor"
+    )
+
+
+# ─────────────────────────────────────────────
+# TABLE 3.5: volunteer_profiles
+# Extended volunteer info beyond auth.
+# ─────────────────────────────────────────────
+
+class VolunteerProfile(Base):
+    __tablename__ = "volunteer_profiles"
+
+    id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    user_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("users.id", ondelete="CASCADE"), unique=True
+    )
+    phone: Mapped[str] = mapped_column(String(30), nullable=True)
+    area_description: Mapped[str] = mapped_column(String(255), nullable=True)  # "Andheri West, Mumbai"
+    is_available: Mapped[bool] = mapped_column(Boolean, default=True)
+    current_latitude:  Mapped[float] = mapped_column(Float, nullable=True)
+    current_longitude: Mapped[float] = mapped_column(Float, nullable=True)
+    last_active_at:    Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+    # Relationships
+    user: Mapped["User"] = relationship("User", back_populates="volunteer_profile")
+    responses: Mapped[list["ImpactAlert"]] = relationship(
+        "ImpactAlert", back_populates="responder", foreign_keys="ImpactAlert.responder_volunteer_id"
+    )
+
+
+# ─────────────────────────────────────────────
+# TABLE 3.6: impact_alerts
+# Crash/impact alerts reported by patients, responded to by volunteers.
+# ─────────────────────────────────────────────
+
+class ImpactAlert(Base):
+    __tablename__ = "impact_alerts"
+
+    id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+
+    # Who reported — denormalized strings (patient may not be logged in)
+    reported_by_name:  Mapped[str] = mapped_column(String(255), nullable=True, default="Unknown")
+    reported_by_phone: Mapped[str] = mapped_column(String(30),  nullable=True)
+    reported_by_user_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+    # Location
+    latitude:       Mapped[float] = mapped_column(Float, nullable=True)
+    longitude:      Mapped[float] = mapped_column(Float, nullable=True)
+    initial_latitude:  Mapped[float] = mapped_column(Float, nullable=True)
+    initial_longitude: Mapped[float] = mapped_column(Float, nullable=True)
+    location_label: Mapped[str]   = mapped_column(String(500), nullable=True)  # "12.9716° N, 77.5946° E"
+    maps_url:       Mapped[str]   = mapped_column(String(500), nullable=True)  # Google Maps link
+
+    # Status flow: ACTIVE → RESPONDING → RESOLVED
+    status: Mapped[ImpactAlertStatus] = mapped_column(
+        Enum(ImpactAlertStatus), default=ImpactAlertStatus.ACTIVE
+    )
+
+    # Volunteer who responded
+    responder_volunteer_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("volunteer_profiles.id", ondelete="SET NULL"), nullable=True
+    )
+    responder_user_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    responder_name:  Mapped[str]      = mapped_column(String(255), nullable=True)
+    responded_at:    Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolved_at:     Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # Notification tracking
+    volunteers_notified: Mapped[int]  = mapped_column(Integer, default=0)
+    sms_sent:            Mapped[bool] = mapped_column(Boolean, default=False)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    responder: Mapped["VolunteerProfile"] = relationship(
+        "VolunteerProfile", back_populates="responses",
+        foreign_keys=[responder_volunteer_id]
     )
 
 
