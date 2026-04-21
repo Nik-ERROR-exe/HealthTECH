@@ -36,15 +36,17 @@ def create_app() -> FastAPI:
     # ── CORS ──
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=["https://health-tech-amber.vercel.app"],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
 
     # ── Static files for uploaded wound images ──
-    os.makedirs("uploads/wounds", exist_ok=True)
-    app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    UPLOAD_DIR = os.path.join(BASE_DIR, "uploads", "wounds")
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    app.mount("/uploads", StaticFiles(directory=os.path.join(BASE_DIR, "uploads")), name="uploads")
 
     # ── Routers ──
     app.include_router(auth_router, prefix="/api")
