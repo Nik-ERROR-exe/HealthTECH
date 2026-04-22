@@ -251,8 +251,11 @@ def get_alert_status(
 
 @router.get("/active")
 def get_active_alerts(db: Session = Depends(get_db)):
+    # All active and responding alerts (within the last 6 hours)
+    expiry_limit = datetime.now(timezone.utc) - timedelta(hours=6)
     alerts = db.query(ImpactAlert).filter(
-        ImpactAlert.status.in_([ImpactAlertStatus.ACTIVE, ImpactAlertStatus.RESPONDING])
+        ImpactAlert.status.in_([ImpactAlertStatus.ACTIVE, ImpactAlertStatus.RESPONDING]),
+        ImpactAlert.created_at >= expiry_limit
     ).order_by(ImpactAlert.created_at.desc()).all()
     return {
         "alerts": [

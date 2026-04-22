@@ -9,7 +9,7 @@ Endpoints:
   PUT  /volunteer/availability       → toggle available/unavailable
 """
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -75,9 +75,11 @@ def get_volunteer_dashboard(
     """
     profile = _require_volunteer(current_user, db)
 
-    # All active and responding alerts
+    # All active and responding alerts (within the last 6 hours)
+    expiry_limit = datetime.now(timezone.utc) - timedelta(hours=6)
     alerts = db.query(ImpactAlert).filter(
-        ImpactAlert.status.in_([ImpactAlertStatus.ACTIVE, ImpactAlertStatus.RESPONDING])
+        ImpactAlert.status.in_([ImpactAlertStatus.ACTIVE, ImpactAlertStatus.RESPONDING]),
+        ImpactAlert.created_at >= expiry_limit
     ).order_by(ImpactAlert.created_at.desc()).all()
 
     alerts_data = []
