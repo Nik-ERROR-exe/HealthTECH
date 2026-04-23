@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { Menu, X, Sun, Moon, LogOut } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { getUser, clearAuth, isAuthenticated, getDashboardPath } from '@/lib/auth';
@@ -11,12 +11,26 @@ const Navbar = () => {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [dark, setDark] = useState(document.documentElement.classList.contains('dark'));
   const navigate = useNavigate();
+  const location = useLocation();
   const user = getUser();
   const authed = isAuthenticated();
 
   const toggleDark = () => {
     document.documentElement.classList.toggle('dark');
     setDark(!dark);
+  };
+
+  const handleAnchorClick = (sectionId: string) => {
+    if (location.pathname === '/') {
+      // Already on landing page, scroll directly
+      const element = document.getElementById(sectionId);
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth' });
+      }
+    } else {
+      // Navigate to landing page with hash
+      navigate(`/#${sectionId}`);
+    }
   };
 
   const handleLogout = () => {
@@ -37,8 +51,8 @@ const Navbar = () => {
         <div className="hidden md:flex items-center gap-6">
           {!authed ? (
             <>
-              <Link to="/#features" className="text-muted-foreground hover:text-foreground transition-colors text-sm font-medium">{t('header.features')}</Link>
-              <Link to="/#how-it-works" className="text-muted-foreground hover:text-foreground transition-colors text-sm font-medium">{t('header.howItWorks')}</Link>
+              <button onClick={() => handleAnchorClick('features')} className="text-muted-foreground hover:text-foreground transition-colors text-sm font-medium cursor-pointer">{t('header.features')}</button>
+              <button onClick={() => handleAnchorClick('how-it-works')} className="text-muted-foreground hover:text-foreground transition-colors text-sm font-medium cursor-pointer">{t('header.howItWorks')}</button>
               <Link to="/login" className="text-sm font-medium text-foreground">{t('header.signIn')}</Link>
               <Link to="/register" className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity">{t('header.getStarted')}</Link>
             </>
@@ -77,6 +91,8 @@ const Navbar = () => {
             <div className="p-4 flex flex-col gap-3">
               {!authed ? (
                 <>
+                  <button onClick={() => { handleAnchorClick('features'); setMobileOpen(false); }} className="text-sm font-medium py-2 text-left">{t('header.features')}</button>
+                  <button onClick={() => { handleAnchorClick('how-it-works'); setMobileOpen(false); }} className="text-sm font-medium py-2 text-left">{t('header.howItWorks')}</button>
                   <Link to="/login" onClick={() => setMobileOpen(false)} className="text-sm font-medium py-2">{t('header.signIn')}</Link>
                   <Link to="/register" onClick={() => setMobileOpen(false)} className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium text-center">{t('header.getStarted')}</Link>
                 </>

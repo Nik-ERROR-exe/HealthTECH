@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Shield, Activity, Brain, Clock, ArrowRight, Heart, Users, Zap } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -13,6 +13,7 @@ const fadeUp = {
 
 const LandingPage = () => {
   const { t } = useTranslation();
+  const location = useLocation();
 
   const features = [
     { icon: Brain, title: t('landing.features.ai.title'), desc: t('landing.features.ai.desc') },
@@ -29,6 +30,20 @@ const LandingPage = () => {
     { num: '03', title: t('landing.howItWorks.step3.title'), desc: t('landing.howItWorks.step3.desc') },
     { num: '04', title: t('landing.howItWorks.step4.title'), desc: t('landing.howItWorks.step4.desc') },
   ];
+
+  useEffect(() => {
+    // Handle hash navigation
+    const hash = location.hash;
+    if (hash) {
+      const sectionId = hash.replace('#', '');
+      const element = document.getElementById(sectionId);
+      if (element) {
+        setTimeout(() => {
+          element.scrollIntoView({ behavior: 'smooth' });
+        }, 100);
+      }
+    }
+  }, [location.hash]);
 
   useEffect(() => {
     // Lenis smooth scroll
