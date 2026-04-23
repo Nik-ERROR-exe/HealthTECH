@@ -5,6 +5,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { DashboardSkeleton } from '@/components/LoadingSkeleton';
 import ProtectedRoute from '@/components/ProtectedRoute';
+import DemoPage from '@/pages/DemoPage';
 
 const LandingPage = lazy(() => import('./pages/LandingPage'));
 const LoginPage = lazy(() => import('./pages/LoginPage'));
@@ -26,6 +27,7 @@ const App = () => (
         <Suspense fallback={<DashboardSkeleton />}>
           <Routes>
             <Route path="/" element={<LandingPage />} />
+            <Route path="/demo" element={<DemoPage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
             <Route path="/patient/dashboard" element={<ProtectedRoute requiredRole="PATIENT"><PatientDashboard /></ProtectedRoute>} />
