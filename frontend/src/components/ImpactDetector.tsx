@@ -10,22 +10,16 @@ const IMPACT_THRESHOLD_MS2 = 25;     // m/s² — lower = more sensitive
 const COUNTDOWN_SECONDS    = 15;
 const COOLDOWN_MS          = 30_000;
 
-<<<<<<< HEAD
-const ImpactDetector = ({ patientName, patientPhone, userId }: any) => {
-  const { t } = useTranslation();
-  const [sensorsEnabled, setSensorsEnabled] = useState(false);
-  const [showEnableBtn, setShowEnableBtn] = useState(false);
-=======
 interface Props {
   patientName:  string;
   patientPhone: string;
   userId:       string;
 }
->>>>>>> d0dae9f2719a5e050c77d3ea1eaadf6b458715de
 
 type ModalPhase = 'countdown' | 'locating' | 'alerting' | 'done';
 
 const ImpactDetector = ({ patientName, patientPhone, userId }: Props) => {
+  const { t } = useTranslation();
   const [showModal, setShowModal]       = useState(false);
   const [modalPhase, setModalPhase]     = useState<ModalPhase>('countdown');
   const [countdown, setCountdown]       = useState(COUNTDOWN_SECONDS);
@@ -46,36 +40,6 @@ const ImpactDetector = ({ patientName, patientPhone, userId }: Props) => {
     audioRef.current.preload = 'auto';
     audioRef.current.loop = true; // Alarm should loop until dismissed
 
-<<<<<<< HEAD
-    if (typeof DeviceMotionEvent === "undefined") {
-      return;
-    }
-
-    // Always show enable button first
-    setShowEnableBtn(true);
-  }, []);
-
-  // ============================
-  // 2. ENABLE SENSORS (USER GESTURE REQUIRED)
-  // ============================
-  const enableSensors = async () => {
-    try {
-      // iOS requires permission
-      if (typeof (DeviceMotionEvent as any).requestPermission === "function") {
-        const res = await (DeviceMotionEvent as any).requestPermission();
-        if (res !== "granted") {
-          toast.error("Motion permission denied");
-          return;
-        }
-      }
-
-      setSensorsEnabled(true);
-      setShowEnableBtn(false);
-      toast.success(t('common.success'));
-
-    } catch (e) {
-      toast.error(t('common.error'));
-=======
     return () => {
       if (countdownRef.current) clearInterval(countdownRef.current);
       if (pollRef.current) clearInterval(pollRef.current);
@@ -90,7 +54,6 @@ const ImpactDetector = ({ patientName, patientPhone, userId }: Props) => {
     if (audioRef.current) {
       audioRef.current.currentTime = 0;
       audioRef.current.play().catch(() => {});
->>>>>>> d0dae9f2719a5e050c77d3ea1eaadf6b458715de
     }
   };
 
@@ -182,20 +145,9 @@ const ImpactDetector = ({ patientName, patientPhone, userId }: Props) => {
     };
   }, [showModal, modalPhase]);
 
-<<<<<<< HEAD
-  // ============================
-  // 4. ALERT TRIGGER
-  // ============================
-  const triggerAlert = useCallback(async () => {
-    toast.error(t('emergency.emergencyAlert'));
-
-    let lat = null;
-    let lng = null;
-=======
   const fireEmergency = useCallback(async () => {
     if (countdownRef.current) clearInterval(countdownRef.current);
     setModalPhase('locating');
->>>>>>> d0dae9f2719a5e050c77d3ea1eaadf6b458715de
 
     let lat: number | null = null;
     let lng: number | null = null;
@@ -225,15 +177,6 @@ const ImpactDetector = ({ patientName, patientPhone, userId }: Props) => {
       setMapsUrl(res.data.maps_url);
       setModalPhase('done');
 
-<<<<<<< HEAD
-      toast.success(t('common.success'));
-
-    } catch {
-      toast.error(t('common.error'));
-    }
-
-  }, [patientName, patientPhone, userId, t]);
-=======
       pollRef.current = setInterval(async () => {
         if (!res.data.alert_id) return;
         try {
@@ -249,7 +192,6 @@ const ImpactDetector = ({ patientName, patientPhone, userId }: Props) => {
       setModalPhase('done');
     }
   }, [patientName, patientPhone, userId]);
->>>>>>> d0dae9f2719a5e050c77d3ea1eaadf6b458715de
 
   const handleImOkay = useCallback(async () => {
     if (countdownRef.current) clearInterval(countdownRef.current);
@@ -276,15 +218,6 @@ const ImpactDetector = ({ patientName, patientPhone, userId }: Props) => {
   }, [fireEmergency, stopAlertSound]);
 
   return (
-<<<<<<< HEAD
-    <div className="fixed bottom-24 left-4 z-40 flex flex-col gap-2">
-      {showEnableBtn && (
-        <button 
-          onClick={enableSensors}
-          className="px-3 py-1.5 rounded-lg bg-orange-500 text-white text-[10px] font-bold uppercase tracking-wider shadow-lg hover:bg-orange-600 transition-colors"
-        >
-          {t('emergency.enableProtection')}
-=======
     <>
       {/* Floating controls */}
       <div className="fixed bottom-6 left-4 z-40 flex flex-col gap-2 items-start">
@@ -306,25 +239,9 @@ const ImpactDetector = ({ patientName, patientPhone, userId }: Props) => {
           className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive hover:bg-destructive/20 backdrop-blur-sm"
         >
           <AlertTriangle size={12} /> Simulate Impact
->>>>>>> d0dae9f2719a5e050c77d3ea1eaadf6b458715de
         </button>
       </div>
 
-<<<<<<< HEAD
-      {sensorsEnabled && (
-        <div className="px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-500 text-[10px] font-bold uppercase tracking-wider backdrop-blur-sm border border-emerald-500/20">
-          {t('emergency.shieldActive')}
-        </div>
-      )}
-
-      <button 
-        onClick={triggerAlert}
-        className="w-12 h-12 rounded-full bg-red-600 text-white flex items-center justify-center shadow-2xl hover:scale-105 active:scale-95 transition-all"
-      >
-        <span className="font-bold text-xs">{t('emergency.sos')}</span>
-      </button>
-    </div>
-=======
       {/* Emergency Modal */}
       <AnimatePresence>
         {showModal && (
@@ -468,7 +385,6 @@ const ImpactDetector = ({ patientName, patientPhone, userId }: Props) => {
         )}
       </AnimatePresence>
     </>
->>>>>>> d0dae9f2719a5e050c77d3ea1eaadf6b458715de
   );
 };
 
