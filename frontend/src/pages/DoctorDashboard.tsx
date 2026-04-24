@@ -5,7 +5,7 @@ import {
   Loader2, Send, Plus, X, ChevronRight, UserSearch, BookOpen, Check, Camera,
   Bell, Sparkles, TrendingDown, Heart, Zap, Brain, Thermometer, Droplet,
   MapPin, Shield, Wifi, Volume2, AlertOctagon, Navigation, Phone, MessageCircle,
-  BarChart3, PieChart, LineChart as LineChartIcon, Calendar, Filter
+  BarChart3, PieChart as PieChartIcon, LineChart as LineChartIcon, Calendar, Filter
 } from 'lucide-react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -703,7 +703,7 @@ const fadeUp = {
   hidden: { opacity: 0, y: 20 },
   visible: (i: number) => ({
     opacity: 1, y: 0,
-    transition: { delay: i * 0.08, duration: 0.4, ease: [0, 0, 0.2, 1] },
+    transition: { delay: i * 0.08, duration: 0.4, ease: "easeOut" },
   }),
 };
 

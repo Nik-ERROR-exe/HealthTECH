@@ -32,7 +32,7 @@ const fadeUp = {
     transition: {
       delay: i * 0.1,
       duration: 0.7,
-      ease: [0.25, 0.1, 0.25, 1],
+      ease: "easeOut",
     },
   }),
 };
@@ -56,7 +56,7 @@ interface Testimonial {
   avatar?: string;
 }
 
-const StatCard = ({ stat, index }: { stat: typeof stats[0]; index: number }) => {
+const StatCard = ({ stat, index }: { stat: any; index: number }) => {
   const ref = useRef(null);
   const isInView = useInView(ref, { once: true, margin: "-50px" });
 

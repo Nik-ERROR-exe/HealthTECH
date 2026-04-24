@@ -29,7 +29,7 @@ const formItemVariants = {
   visible: (i: number) => ({
     opacity: 1,
     y: 0,
-    transition: { delay: i * 0.05, duration: 0.4, ease: [0.25, 0.1, 0.25, 1] },
+    transition: { delay: i * 0.05, duration: 0.4, ease: "easeOut" },
   }),
 };
 
@@ -94,7 +94,7 @@ const RegisterPage = () => {
         <motion.div
           initial={{ opacity: 0, y: 20, filter: 'blur(4px)' }}
           animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-          transition={{ duration: 0.6, ease: [0.25, 0.1, 0.25, 1] }}
+          transition={{ duration: 0.6, ease: "easeOut" }}
           className="w-full max-w-md"
         >
           <div className="backdrop-blur-xl bg-card/30 border border-border/40 rounded-2xl p-8 shadow-2xl shadow-primary/5">
