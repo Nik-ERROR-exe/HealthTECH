@@ -29,7 +29,7 @@ const formItemVariants = {
   visible: (i: number) => ({
     opacity: 1,
     y: 0,
-    transition: { delay: i * 0.05, duration: 0.4, ease: "easeOut" },
+    transition: { delay: i * 0.05, duration: 0.4, ease: "easeOut" as any },
   }),
 };
 
@@ -94,17 +94,17 @@ const RegisterPage = () => {
         <motion.div
           initial={{ opacity: 0, y: 20, filter: 'blur(4px)' }}
           animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-          transition={{ duration: 0.6, ease: "easeOut" }}
+          transition={{ duration: 0.6, ease: "easeOut" as any }}
           className="w-full max-w-md"
         >
           <div className="backdrop-blur-xl bg-card/30 border border-border/40 rounded-2xl p-8 shadow-2xl shadow-primary/5">
             <div className="text-center mb-8">
               <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium border border-primary/20 mb-4">
                 <Sparkles size={12} className="animate-pulse" />
-                <span>Join CARENETRA</span>
+                <span>{t('auth.join') || 'Join CARENETRA'}</span>
               </div>
               <h1 className="text-3xl font-bold text-foreground">{t('auth.register')}</h1>
-              <p className="text-sm text-muted-foreground mt-2">Start your healthcare journey today</p>
+              <p className="text-sm text-muted-foreground mt-2">{t('auth.startJourney') || 'Start your healthcare journey today'}</p>
             </div>
 
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
@@ -134,8 +134,7 @@ const RegisterPage = () => {
                   className="text-xs text-muted-foreground bg-primary/5 backdrop-blur-sm rounded-xl px-4 py-3 leading-relaxed border border-primary/20"
                 >
                   <Sparkles size={12} className="inline mr-1 text-primary" />
-                  Volunteers receive SMS alerts when CARENETRA detects a nearby patient emergency.
-                  You can respond to confirm you're heading to help.
+                  {t('auth.volunteerInfo') || "Volunteers receive SMS alerts when CARENETRA detects a nearby patient emergency. You can respond to confirm you're heading to help."}
                 </motion.div>
               )}
 
@@ -239,7 +238,7 @@ const RegisterPage = () => {
                     {loading ? (
                       <>
                         <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                        Creating account...
+                        {t('auth.creatingAccount') || 'Creating account...'}
                       </>
                     ) : (
                       t('auth.register')
@@ -263,7 +262,7 @@ const RegisterPage = () => {
 
             <div className="mt-6 pt-4 border-t border-border/30 flex items-center justify-center gap-2 text-xs text-muted-foreground">
               <Shield size={12} className="text-primary" />
-              <span>HIPAA compliant • Secure & encrypted</span>
+              <span>{t('auth.hipaaCompliant') || 'HIPAA compliant • Secure & encrypted'}</span>
             </div>
           </div>
         </motion.div>

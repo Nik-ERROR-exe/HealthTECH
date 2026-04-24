@@ -13,7 +13,7 @@ const formItemVariants = {
   visible: (i: number) => ({
     opacity: 1,
     y: 0,
-    transition: { delay: i * 0.05, duration: 0.4, ease: "easeOut" },
+    transition: { delay: i * 0.05, duration: 0.4, ease: "easeOut" as any },
   }),
 };
 const LoginPage = () => {
@@ -74,17 +74,17 @@ const LoginPage = () => {
         <motion.div
           initial={{ opacity: 0, y: 20, filter: 'blur(4px)' }}
           animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-          transition={{ duration: 0.6, ease: "easeOut" }}
+          transition={{ duration: 0.6, ease: "easeOut" as any }}
           className="w-full max-w-md"
         >
           <div className="backdrop-blur-xl bg-card/30 border border-border/40 rounded-2xl p-8 shadow-2xl shadow-primary/5">
             <div className="text-center mb-8">
               <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium border border-primary/20 mb-4">
                 <Sparkles size={12} className="animate-pulse" />
-                <span>Welcome back</span>
+                <span>{t('auth.welcomeBack') || 'Welcome back'}</span>
               </div>
               <h1 className="text-3xl font-bold text-foreground">{t('auth.login')}</h1>
-              <p className="text-sm text-muted-foreground mt-2">Access your CARENETRA account</p>
+              <p className="text-sm text-muted-foreground mt-2">{t('auth.accessAccount') || 'Access your CARENETRA account'}</p>
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -127,7 +127,7 @@ const LoginPage = () => {
 
               <div className="flex justify-end">
                 <Link to="/forgot-password" className="text-xs text-primary hover:underline">
-                  Forgot password?
+                  {t('auth.forgotPassword') || 'Forgot password?'}
                 </Link>
               </div>
 
@@ -141,7 +141,7 @@ const LoginPage = () => {
                     {loading ? (
                       <>
                         <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                        Signing in...
+                        {t('auth.signingIn') || 'Signing in...'}
                       </>
                     ) : (
                       t('auth.login')
@@ -165,7 +165,7 @@ const LoginPage = () => {
 
             <div className="mt-6 pt-4 border-t border-border/30 flex items-center justify-center gap-2 text-xs text-muted-foreground">
               <Shield size={12} className="text-primary" />
-              <span>HIPAA compliant • Secure & encrypted</span>
+              <span>{t('auth.hipaaCompliant') || 'HIPAA compliant • Secure & encrypted'}</span>
             </div>
 
           </div>

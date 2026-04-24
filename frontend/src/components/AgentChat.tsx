@@ -384,7 +384,7 @@ const AgentChat = () => {
                 className="h-full gradient-primary"
                 initial={{ width: 0 }}
                 animate={{ width: `${progressPct}%` }}
-                transition={{ duration: 0.5, ease: 'easeOut' }}
+                transition={{ duration: 0.5, ease: 'easeOut' as any }}
               />
             </div>
 

@@ -105,7 +105,7 @@ const DemoPage = () => {
             <motion.div
               initial={{ opacity: 0, y: 30 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.8, ease: "easeOut" }}
+              transition={{ duration: 0.8, ease: "easeOut" as any }}
               className="space-y-6 text-center lg:text-left"
             >
               <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-primary/20 text-primary text-xs font-medium border border-primary/30 backdrop-blur-sm mx-auto lg:mx-0">
@@ -177,7 +177,7 @@ const DemoPage = () => {
             <motion.div
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
-              transition={{ duration: 0.8, delay: 0.2, ease: "easeOut" }}
+              transition={{ duration: 0.8, delay: 0.2, ease: "easeOut" as any }}
               className="relative"
               id="demo-video"
             >
