@@ -1,12 +1,13 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import {
   Copy, Check, Pill, ChevronRight, Activity,
   Loader2, MessageSquare, Bell, Camera, Upload,
-  TrendingUp, Calendar, Clock, Sparkles,
+  TrendingUp, Calendar, Clock, Sparkles, Heart,
   Shield, Wifi, Brain, AlertTriangle, Users, MapPin,
   History, FileText, CheckCircle, XCircle,
-  AlertOctagon, Phone
+  AlertOctagon, Phone, Thermometer, Droplet, User,
+  Star, Award, LineChart, BarChart3, CalendarDays
 } from 'lucide-react';
 import { toast } from 'sonner';
 import DashboardLayout from '@/components/DashboardLayout';
@@ -16,7 +17,8 @@ import ImpactDetector from '@/components/ImpactDetector';
 import Lenis from '@studio-freight/lenis';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  PieChart as RePieChart, Pie, Cell, RadialBarChart, RadialBar
+  PieChart as RePieChart, Pie, Cell, RadialBarChart, RadialBar,
+  LineChart as ReLineChart, Line
 } from 'recharts';
 
 // ===== Types =====
@@ -55,6 +57,17 @@ interface DashboardData {
   } | null;
   risk_tier?: string;
   risk_score?: number;
+  upcoming_appointments?: Array<{ date: string; doctor: string; type: string; location?: string }>;
+  care_team?: Array<{ name: string; role: string; specialty?: string; avatar?: string }>;
+  vital_signs?: { heart_rate?: number; blood_pressure_systolic?: number; blood_pressure_diastolic?: number; temperature?: number; oxygen_saturation?: number };
+  recent_check_ins?: Array<{
+    check_in_id: string;
+    created_at: string;
+    input_type: string;
+    symptom_summary: string | null;
+    total_score: number | null;
+    tier: string | null;
+  }>;
 }
 
 interface Message {
@@ -69,6 +82,8 @@ interface CheckinHistory {
   date: string;
   risk_score: number;
   risk_tier: string;
+  symptom_severity?: number;
+  symptoms_summary?: string;
 }
 
 interface WoundImage {
@@ -79,7 +94,7 @@ interface WoundImage {
   status: string;
 }
 
-// ===== Helper: Risk config =====
+// ===== Helpers =====
 const getRiskConfig = (tier?: string) => {
   const t = (tier || 'GREEN').toUpperCase();
   if (t === 'GREEN') return { color: '#10b981', bg: 'bg-emerald-500/10', text: 'text-emerald-400', icon: CheckCircle, label: 'Low Risk' };
@@ -89,9 +104,12 @@ const getRiskConfig = (tier?: string) => {
   return { color: '#8b5cf6', bg: 'bg-purple-500/10', text: 'text-purple-400', icon: AlertOctagon, label: 'Emergency' };
 };
 
+const formatDate = (dateStr: string | null) => dateStr ? new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Not set';
+
 // ===== Main Component =====
 const PatientDashboard = () => {
-  const user = getUser(); // ✅ lowercase 'user'
+  // All hooks MUST be at the top level, BEFORE any conditional returns
+  const user = getUser();
   const [data, setData] = useState<DashboardData | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [checkinHistory, setCheckinHistory] = useState<CheckinHistory[]>([]);
@@ -101,6 +119,15 @@ const PatientDashboard = () => {
   const [uploadingWound, setUploadingWound] = useState(false);
   const [nearbyVolunteers, setNearbyVolunteers] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // ✅ useMemo can be used here because it's at the top level, before any conditional returns
+  const symptomTrend = useMemo(() => {
+    if (!checkinHistory.length) return [];
+    return checkinHistory.slice(-7).map(c => ({
+      date: new Date(c.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      severity: c.symptom_severity ?? (c.risk_score ? Math.min(100, c.risk_score) : 0)
+    }));
+  }, [checkinHistory]);
 
   // Smooth scroll
   useEffect(() => {
@@ -121,6 +148,7 @@ const PatientDashboard = () => {
     fetchAll();
   }, []);
 
+  // ===== API Functions =====
   const fetchDashboard = async () => {
     try {
       const res = await api.get('/patient/dashboard');
@@ -199,6 +227,7 @@ const PatientDashboard = () => {
     }
   };
 
+  // ===== Conditional returns for loading/error states MUST come AFTER all hooks =====
   if (loading) {
     return (
       <DashboardLayout>
@@ -222,6 +251,7 @@ const PatientDashboard = () => {
     );
   }
 
+  // All data processing logic (these are NOT hooks, they're regular JavaScript)
   const greeting = new Date().getHours() < 12 ? 'Good morning' :
                    new Date().getHours() < 17 ? 'Good afternoon' : 'Good evening';
 
@@ -239,10 +269,13 @@ const PatientDashboard = () => {
     { name: 'Missed', value: missedCount, fill: '#ef4444' },
   ];
 
+  const vitals = data.vital_signs || {};
+  const careTeam = data.care_team || [];
+  const appointments = data.upcoming_appointments || [];
+
   return (
     <DashboardLayout>
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6 pb-8">
-
         {/* Welcome Banner */}
         <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary/20 via-primary/10 to-secondary/10 p-6 md:p-8 border border-primary/20 shadow-2xl">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_30%,rgba(56,189,248,0.15)_0%,transparent_60%)]" />
@@ -259,31 +292,32 @@ const PatientDashboard = () => {
                 <Activity size={14} className="text-primary" />
                 Health status: <span className="font-medium text-foreground">{data.health_status}</span>
               </p>
-              {data.last_check_in && (
-                <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
-                  <Clock size={12} /> Last check-in: {new Date(data.last_check_in).toLocaleDateString()}
-                </p>
-              )}
+              <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                <CalendarDays size={12} /> Member since {data.active_course?.start_date ? new Date(data.active_course.start_date).getFullYear() : '2025'}
+              </p>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-4">
               <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-background/30 backdrop-blur-sm border border-border">
                 <Shield size={14} className="text-emerald-400" />
                 <span className="text-xs font-mono text-foreground">{data.unique_uid}</span>
-                <button onClick={copyId} className="ml-1 p-1 hover:bg-muted rounded-md">
+                <button onClick={copyId} className="ml-1 p-1 hover:bg-muted rounded-md transition">
                   {copied ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} className="text-muted-foreground" />}
                 </button>
               </div>
-              <div className="flex items-center gap-1.5 text-xs text-emerald-400 bg-emerald-500/10 px-3 py-1.5 rounded-full border border-emerald-500/20">
-                <Wifi size={12} />
-                <span>Live Sync</span>
+              <div className="flex flex-col items-end">
+                <div className="flex items-center gap-1.5 text-xs text-emerald-400 bg-emerald-500/10 px-3 py-1.5 rounded-full border border-emerald-500/20">
+                  <Wifi size={12} />
+                  <span>Live Sync</span>
+                </div>
+                <div className="text-xs text-muted-foreground mt-1">Last check-in: {formatDate(data.last_check_in)}</div>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Risk + AI Insight Row */}
-        <div className="grid md:grid-cols-2 gap-5">
-          <div className={`glass-card rounded-3xl p-5 border-l-8`} style={{ borderLeftColor: riskConfig.color }}>
+        {/* Risk + AI Insight + Vital Signs Row */}
+        <div className="grid md:grid-cols-3 gap-5">
+          <div className={`glass-card rounded-3xl p-5 border-l-8 transition-all hover:shadow-lg`} style={{ borderLeftColor: riskConfig.color }}>
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-xs uppercase tracking-wider text-muted-foreground">Current Risk Level</p>
@@ -319,10 +353,21 @@ const PatientDashboard = () => {
                     : 'No active course. Share your Patient ID with your doctor.'}
                 </p>
                 {data.pending_question && (
-                  <button onClick={openAgentChat} className="mt-2 text-xs text-primary underline">Answer CARA's question</button>
+                  <button onClick={openAgentChat} className="mt-2 text-xs text-primary underline">Answer CARA's question →</button>
                 )}
               </div>
             </div>
+          </div>
+
+          <div className="glass-card rounded-3xl p-5 border border-border/50">
+            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-2"><Heart size={14} className="text-rose-400" /> Vital Signs</h3>
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="flex justify-between"><span className="text-muted-foreground">Heart Rate</span><span className="font-medium">{vitals.heart_rate ?? '—'} bpm</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">BP</span><span className="font-medium">{vitals.blood_pressure_systolic && vitals.blood_pressure_diastolic ? `${vitals.blood_pressure_systolic}/${vitals.blood_pressure_diastolic}` : '—'}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Temp</span><span className="font-medium">{vitals.temperature ?? '—'} °C</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">SpO₂</span><span className="font-medium">{vitals.oxygen_saturation ?? '—'}%</span></div>
+            </div>
+            <div className="text-[10px] text-muted-foreground mt-2 text-center">{!Object.keys(vitals).length && "No vital signs recorded yet"}</div>
           </div>
         </div>
 
@@ -338,7 +383,7 @@ const PatientDashboard = () => {
                 <p className="text-xs text-muted-foreground">Talk to CARA – voice & text</p>
               </div>
             </div>
-            <ChevronRight size={18} className="text-muted-foreground group-hover:text-primary" />
+            <ChevronRight size={18} className="text-muted-foreground group-hover:text-primary transition" />
           </button>
 
           <button onClick={() => fileInputRef.current?.click()} disabled={uploadingWound} className="w-full glass-card p-5 flex items-center justify-between hover:border-orange-400/40 transition-all group rounded-2xl">
@@ -351,7 +396,7 @@ const PatientDashboard = () => {
                 <p className="text-xs text-muted-foreground">AI wound analysis (OpenCV)</p>
               </div>
             </div>
-            <Upload size={18} className="text-muted-foreground group-hover:text-orange-400" />
+            <Upload size={18} className="text-muted-foreground group-hover:text-orange-400 transition" />
           </button>
           <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleWoundUpload} />
         </div>
@@ -367,7 +412,7 @@ const PatientDashboard = () => {
                 <div className="flex justify-between items-start flex-wrap gap-2">
                   <div>
                     <p className="font-medium text-foreground text-lg">{data.active_course.course_name}</p>
-                    <p className="text-sm text-muted-foreground flex items-center gap-1">Dr. {data.active_course.doctor_name}</p>
+                    <p className="text-sm text-muted-foreground flex items-center gap-1"><User size={12} /> Dr. {data.active_course.doctor_name}</p>
                   </div>
                   <span className="text-sm font-medium text-primary">{data.active_course.progress_pct}% complete</span>
                 </div>
@@ -378,10 +423,14 @@ const PatientDashboard = () => {
                   <div className="flex items-center gap-1"><Calendar size={12} /> Start: {data.active_course.start_date}</div>
                   <div className="flex items-center gap-1"><Calendar size={12} /> End: {data.active_course.end_date}</div>
                 </div>
-                {data.active_course.notes && <div className="p-3 rounded-xl bg-muted/30 text-xs italic">{data.active_course.notes}</div>}
+                {data.active_course.notes && <div className="p-3 rounded-xl bg-muted/30 text-xs italic border-l-2 border-primary/30">{data.active_course.notes}</div>}
               </div>
             ) : (
-              <div className="text-center py-6 text-muted-foreground">No active course. Share ID: <span className="font-mono bg-muted px-1 rounded">{data.unique_uid}</span> with your doctor.</div>
+              <div className="text-center py-8">
+                <p className="text-muted-foreground">No active course assigned yet.</p>
+                <p className="text-xs text-muted-foreground mt-1">Share ID: <span className="font-mono bg-muted px-1 rounded">{data.unique_uid}</span> with your doctor.</p>
+                <button onClick={openAgentChat} className="mt-4 text-xs text-primary underline">Start a general check-in</button>
+              </div>
             )}
           </div>
 
@@ -390,34 +439,38 @@ const PatientDashboard = () => {
               <Pill size={18} className="text-secondary" /> Today's Medications
             </h2>
             {data.medications_today.length > 0 ? (
-              <div className="space-y-3">
+              <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
                 {data.medications_today.map(med => (
-                  <div key={med.id} className="p-3 rounded-xl bg-muted/30">
-                    <div className="flex justify-between">
-                      <p className="text-sm font-medium">{med.name}</p>
+                  <div key={med.id} className="p-3 rounded-xl bg-muted/30 hover:bg-muted/50 transition">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <p className="text-sm font-medium">{med.name}</p>
+                        <p className="text-xs text-muted-foreground">{med.dosage} · {med.frequency}</p>
+                        {med.time_of_day && <p className="text-xs text-muted-foreground/70 mt-1"><Clock size={10} className="inline mr-1" />{med.time_of_day}</p>}
+                      </div>
                       {med.taken !== undefined && (
                         <span className={`text-xs px-2 py-0.5 rounded-full ${med.taken ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400'}`}>
                           {med.taken ? 'Taken' : 'Pending'}
                         </span>
                       )}
                     </div>
-                    <p className="text-xs text-muted-foreground">{med.dosage} · {med.frequency}</p>
-                    {med.time_of_day && <p className="text-xs text-muted-foreground/70 mt-1"><Clock size={10} className="inline mr-1" />{med.time_of_day}</p>}
+                    {med.instructions && <p className="text-[10px] text-muted-foreground mt-1 italic">{med.instructions}</p>}
                   </div>
                 ))}
               </div>
             ) : (
-              <p className="text-center text-muted-foreground text-sm py-6">No medications scheduled.</p>
+              <div className="text-center py-8 text-muted-foreground">
+                <Pill size={28} className="mx-auto mb-2 opacity-30" />
+                <p className="text-sm">No medications scheduled for today.</p>
+              </div>
             )}
           </div>
         </div>
 
-        {/* Analytics Row */}
+        {/* Analytics Row: Recovery Trend, Adherence, Symptom Trend */}
         <div className="grid md:grid-cols-3 gap-6">
           <div className="glass-card rounded-3xl p-5">
-            <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
-              <TrendingUp size={15} className="text-emerald-400" /> Recovery Trend
-            </h3>
+            <h3 className="text-sm font-semibold mb-3 flex items-center gap-2"><TrendingUp size={15} className="text-emerald-400" /> Recovery Trend</h3>
             {data.active_course ? (
               <div className="h-32">
                 <ResponsiveContainer width="100%" height="100%">
@@ -450,7 +503,7 @@ const PatientDashboard = () => {
                     </RePieChart>
                   </ResponsiveContainer>
                 </div>
-                <div className="text-center text-sm font-medium mt-1">{adherencePercent}% taken</div>
+                <div className="text-center text-sm font-medium mt-1">{adherencePercent}% taken today</div>
               </>
             ) : (
               <p className="text-center text-muted-foreground text-sm py-6">Log medications to see adherence.</p>
@@ -458,34 +511,76 @@ const PatientDashboard = () => {
           </div>
 
           <div className="glass-card rounded-3xl p-5">
-            <h3 className="text-sm font-semibold mb-3 flex items-center gap-2"><History size={15} className="text-purple-400" /> Risk History</h3>
-            {checkinHistory.length > 0 ? (
+            <h3 className="text-sm font-semibold mb-3 flex items-center gap-2"><LineChart size={15} className="text-purple-400" /> Symptom Trend</h3>
+            {symptomTrend.length > 0 ? (
               <div className="h-32">
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={checkinHistory.slice(-7).map(c => ({ date: new Date(c.date).toLocaleDateString(undefined, { month:'numeric', day:'numeric' }), score: c.risk_score }))}>
+                  <ReLineChart data={symptomTrend}>
                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                     <XAxis dataKey="date" tick={{ fontSize: 8 }} />
                     <YAxis domain={[0, 100]} tick={{ fontSize: 8 }} />
                     <Tooltip />
-                    <Area type="monotone" dataKey="score" stroke="#8b5cf6" fill="url(#riskGrad)" />
-                    <defs><linearGradient id="riskGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#8b5cf6" stopOpacity={0.3}/><stop offset="100%" stopColor="#8b5cf6" stopOpacity={0}/></linearGradient></defs>
-                  </AreaChart>
+                    <Line type="monotone" dataKey="severity" stroke="#8b5cf6" strokeWidth={2} dot={{ r: 2 }} />
+                  </ReLineChart>
                 </ResponsiveContainer>
               </div>
             ) : (
-              <p className="text-center text-muted-foreground text-sm py-6">Complete check‑ins to see risk trends.</p>
+              <p className="text-center text-muted-foreground text-sm py-6">Complete check-ins to see symptom trends.</p>
             )}
           </div>
         </div>
 
-        {/* Wound History + Volunteer Network */}
+        {/* Risk History & Check-in Timeline */}
+        <div className="grid md:grid-cols-2 gap-6">
+          <div className="glass-card rounded-3xl p-5">
+            <h3 className="text-sm font-semibold mb-3 flex items-center gap-2"><History size={15} className="text-blue-400" /> Risk Score History</h3>
+            {checkinHistory.length > 0 ? (
+              <div className="h-40">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={checkinHistory.slice(-7).map(c => ({ date: new Date(c.date).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' }), score: c.risk_score }))}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                    <XAxis dataKey="date" tick={{ fontSize: 10 }} />
+                    <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} />
+                    <Tooltip />
+                    <Area type="monotone" dataKey="score" stroke="#3b82f6" fill="url(#riskGradBlue)" />
+                    <defs><linearGradient id="riskGradBlue" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#3b82f6" stopOpacity={0.3}/><stop offset="100%" stopColor="#3b82f6" stopOpacity={0}/></linearGradient></defs>
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <p className="text-center text-muted-foreground text-sm py-6">No check-in history yet.</p>
+            )}
+          </div>
+
+          <div className="glass-card rounded-3xl p-5">
+            <h3 className="text-sm font-semibold mb-3 flex items-center gap-2"><Clock size={15} className="text-amber-400" /> Recent Check-ins</h3>
+            {data.recent_check_ins && data.recent_check_ins.length > 0 ? (
+              <div className="space-y-2 max-h-40 overflow-y-auto">
+                {data.recent_check_ins.slice(0,5).map(check => (
+                  <div key={check.check_in_id} className="flex items-start gap-2 p-2 border-b border-border/50 last:border-0">
+                    <div className={`w-2 h-2 mt-1.5 rounded-full ${check.tier === 'RED' || check.tier === 'EMERGENCY' ? 'bg-red-500' : check.tier === 'ORANGE' ? 'bg-orange-500' : check.tier === 'YELLOW' ? 'bg-yellow-500' : 'bg-emerald-500'}`} />
+                    <div className="flex-1">
+                      <p className="text-xs text-foreground line-clamp-1">{check.symptom_summary || `${check.input_type} check-in`}</p>
+                      <p className="text-[10px] text-muted-foreground">{new Date(check.created_at).toLocaleString()}</p>
+                    </div>
+                    <span className="text-[10px] font-medium">{check.total_score !== null ? `${check.total_score} score` : '—'}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-center text-muted-foreground text-sm py-6">No recent check-ins. Start one now!</p>
+            )}
+          </div>
+        </div>
+
+        {/* Wound History + Safety Network */}
         <div className="grid md:grid-cols-2 gap-6">
           <div className="glass-card rounded-3xl p-6">
             <h2 className="font-semibold text-foreground mb-4 flex items-center gap-2"><Camera size={18} className="text-orange-400" /> Wound Analysis History</h2>
             {woundHistory.length > 0 ? (
               <div className="space-y-3 max-h-64 overflow-y-auto">
                 {woundHistory.map(w => (
-                  <div key={w.id} className="flex items-center gap-3 p-2 rounded-xl bg-muted/20">
+                  <div key={w.id} className="flex items-center gap-3 p-2 rounded-xl bg-muted/20 hover:bg-muted/40 transition">
                     {w.thumbnail_url ? <img src={w.thumbnail_url} alt="wound" className="w-12 h-12 rounded-lg object-cover" /> : <div className="w-12 h-12 bg-muted rounded-lg flex items-center justify-center"><FileText size={20} /></div>}
                     <div className="flex-1">
                       <p className="text-sm font-medium">Severity: {w.score}/10 – {w.status}</p>
@@ -504,7 +599,7 @@ const PatientDashboard = () => {
           </div>
 
           <div className="glass-card rounded-3xl p-6">
-            <h2 className="font-semibold text-foreground mb-4 flex items-center gap-2"><Users size={18} className="text-blue-400" /> Volunteer Network</h2>
+            <h2 className="font-semibold text-foreground mb-4 flex items-center gap-2"><Users size={18} className="text-blue-400" /> Safety Network</h2>
             <div className="space-y-4">
               {nearbyVolunteers !== null ? (
                 <div className="flex items-center justify-between p-3 rounded-xl bg-muted/30">
@@ -519,9 +614,51 @@ const PatientDashboard = () => {
               <ImpactDetector
                 patientName={data.full_name}
                 patientPhone={data.emergency_contact_phone || ''}
-                userId={user?.id}  // ✅ Fixed: 'user' not 'User'
+                userId={user?.id}
               />
             </div>
+          </div>
+        </div>
+
+        {/* Upcoming Appointments & Care Team */}
+        <div className="grid md:grid-cols-2 gap-6">
+          <div className="glass-card rounded-3xl p-6">
+            <h2 className="font-semibold text-foreground mb-4 flex items-center gap-2"><Calendar size={18} className="text-cyan-400" /> Upcoming Appointments</h2>
+            {appointments.length > 0 ? (
+              <div className="space-y-3">
+                {appointments.map((apt, idx) => (
+                  <div key={idx} className="flex items-center justify-between p-3 rounded-xl bg-muted/20">
+                    <div><p className="text-sm font-medium">{apt.type}</p><p className="text-xs text-muted-foreground">{apt.doctor}</p></div>
+                    <div className="text-right"><p className="text-xs font-mono">{formatDate(apt.date)}</p>{apt.location && <p className="text-[10px] text-muted-foreground">{apt.location}</p>}</div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-6 text-muted-foreground">
+                <Calendar size={28} className="mx-auto mb-2 opacity-30" />
+                <p className="text-sm">No upcoming appointments.</p>
+                <button className="text-xs text-primary mt-2 underline">Contact your clinic</button>
+              </div>
+            )}
+          </div>
+
+          <div className="glass-card rounded-3xl p-6">
+            <h2 className="font-semibold text-foreground mb-4 flex items-center gap-2"><Star size={18} className="text-yellow-500" /> Your Care Team</h2>
+            {careTeam.length > 0 ? (
+              <div className="space-y-3">
+                {careTeam.map((member, idx) => (
+                  <div key={idx} className="flex items-center gap-3 p-2 rounded-xl hover:bg-muted/20 transition">
+                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary/30 to-secondary/30 flex items-center justify-center text-primary font-bold text-sm">{member.name.charAt(0)}</div>
+                    <div><p className="text-sm font-medium">{member.name}</p><p className="text-xs text-muted-foreground">{member.role}{member.specialty ? ` • ${member.specialty}` : ''}</p></div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-6 text-muted-foreground">
+                <Users size={28} className="mx-auto mb-2 opacity-30" />
+                <p className="text-sm">Your care team will appear once assigned.</p>
+              </div>
+            )}
           </div>
         </div>
 
@@ -529,19 +666,22 @@ const PatientDashboard = () => {
         <div className="glass-card rounded-3xl p-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-semibold text-foreground flex items-center gap-2"><MessageSquare size={18} className="text-primary" /> Doctor Messages</h2>
-            {data.unread_messages > 0 && <span className="text-xs bg-primary/10 text-primary px-3 py-1 rounded-full">{data.unread_messages} new</span>}
+            {data.unread_messages > 0 && <span className="text-xs bg-primary/10 text-primary px-3 py-1 rounded-full animate-pulse">{data.unread_messages} new</span>}
           </div>
           <div className="space-y-3 max-h-80 overflow-y-auto">
             {messages.length > 0 ? (
               messages.map(msg => (
-                <div key={msg.id} className="p-4 rounded-xl border border-border bg-muted/20">
-                  <div className="flex justify-between"><p className="text-sm font-medium">{msg.doctor_name}</p><span className="text-xs text-muted-foreground">{new Date(msg.created_at).toLocaleDateString()}</span></div>
+                <div key={msg.id} className={`p-4 rounded-xl border ${!msg.is_read ? 'border-primary/30 bg-primary/5' : 'border-border bg-muted/20'} transition`}>
+                  <div className="flex justify-between"><p className="text-sm font-medium">{msg.doctor_name}</p><span className="text-xs text-muted-foreground">{new Date(msg.created_at).toLocaleString()}</span></div>
                   <p className="text-sm text-muted-foreground mt-1">{msg.message}</p>
-                  {!msg.is_read && <div className="mt-2 text-xs text-primary flex items-center gap-1"><span className="w-1 h-1 rounded-full bg-primary"/> New</div>}
+                  {!msg.is_read && <div className="mt-2 text-xs text-primary flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"/> New</div>}
                 </div>
               ))
             ) : (
-              <p className="text-center text-muted-foreground py-6">No messages from your doctor yet.</p>
+              <div className="text-center py-8 text-muted-foreground">
+                <MessageSquare size={32} className="mx-auto mb-2 opacity-30" />
+                <p>No messages from your doctor yet.</p>
+              </div>
             )}
           </div>
         </div>

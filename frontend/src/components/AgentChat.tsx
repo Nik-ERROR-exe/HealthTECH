@@ -6,6 +6,8 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import { conversationApi } from '@/lib/api';
+import FaceAnalyzer from '@/components/FaceAnalyzer';
+import { getEmpatheticReply } from '@/lib/nvidiaApi';
 
 declare global {
   interface Window {
@@ -16,8 +18,8 @@ declare global {
 
 interface Question {
   id: string;
-  question: string; // ← matches caretaker_agent output field name
-  type: string;     // backend sends: mcq, yes_no, pain_scale, text, temperature, photo_prompt, greeting
+  question: string;
+  type: string;
   options?: string[];
 }
 
@@ -51,6 +53,15 @@ const AgentChat = () => {
   const [ttsEnabled, setTtsEnabled]       = useState(true);
   const [finalTier, setFinalTier]         = useState<string | null>(null);
 
+  const [facialDistress,       setFacialDistress]       = useState(0);
+  const [dominantEmotion,      setDominantEmotion]      = useState('neutral');
+  const [faceAnalyzerEnabled,  setFaceAnalyzerEnabled]  = useState(false);
+
+  const handleDistressChange = useCallback((score: number, emotion: string) => {
+    setFacialDistress(score);
+    setDominantEmotion(emotion);
+  }, []);
+
   const hasMic = typeof window !== 'undefined' &&
     ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window);
   const hasTTS = typeof window !== 'undefined' && 'speechSynthesis' in window;
@@ -59,6 +70,8 @@ const AgentChat = () => {
   const fileInputRef   = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
   const voicesLoaded   = useRef(false);
+
+  const isCheckinActive = faceAnalyzerEnabled && phase !== 'idle' && phase !== 'done';
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
@@ -108,10 +121,8 @@ const AgentChat = () => {
     ]);
   }, []);
 
-  // Uses q.question — the backend field name from caretaker_agent
   const displayQuestion = useCallback((q: Question) => {
     setCurrentQ(q);
-    // Backend mcq templates include options; yes_no templates don't, so provide defaults
     let opts: string[] | undefined;
     if (q.type === 'mcq' && q.options && q.options.length > 0) {
       opts = q.options;
@@ -132,7 +143,6 @@ const AgentChat = () => {
   // ── Session flow ──────────────────────────────────────────────────────────────
 
   const initChat = async () => {
-    // Do NOT check for active sessions — always start fresh
     addMsg({
       role: 'cara',
       content: "Hi! I'm CARA, your personal health companion. Press Start to begin your check-in.",
@@ -146,15 +156,14 @@ const AgentChat = () => {
     try {
       const res = await conversationApi.start();
       setSessionId(res.data.session_id);
+      setFaceAnalyzerEnabled(true);
 
-      // Show greeting from backend
       const greeting = res.data.greeting || res.data.message;
       if (greeting) {
         addMsg({ role: 'cara', content: greeting });
         speak(greeting);
       }
 
-      // Display the first question after greeting
       const firstQ = res.data.first_question as Question;
       if (firstQ) {
         setTimeout(() => displayQuestion(firstQ), greeting ? 1200 : 0);
@@ -165,11 +174,10 @@ const AgentChat = () => {
     }
   };
 
-  // ── Answer flow — server-driven single-question advancement ──────────────────
+  // ── Answer flow ──────────────────────────────────────────────────────────────
 
   const handleAnswerResponse = (data: any) => {
     if (data.risk_tier) {
-      // Conversation complete — show final result
       const tier = (data.risk_tier as string) || 'GREEN';
       const message = data.friendly_message || "Check-in complete. Take care!";
       setFinalTier(tier);
@@ -177,10 +185,8 @@ const AgentChat = () => {
       speak(message);
       setPhase('done');
     } else if (data.next_question) {
-      // More questions remain
       displayQuestion(data.next_question as Question);
     } else {
-      // Fallback: run pipeline if response shape is unexpected
       runPipeline();
     }
   };
@@ -196,7 +202,22 @@ const AgentChat = () => {
     setPhase('submitting');
 
     try {
-      const res = await conversationApi.answer(sessionId, currentQ.id, answer);
+      const [res, empatheticLine] = await Promise.all([
+        conversationApi.answer(sessionId, currentQ.id, answer),
+        getEmpatheticReply({
+          caraQuestion:   currentQ.question,
+          patientAnswer:  answer,
+          distressScore:  facialDistress,
+          dominantEmotion,
+        }),
+      ]);
+
+      if (empatheticLine) {
+        addMsg({ role: 'cara', content: empatheticLine });
+        speak(empatheticLine);
+        await new Promise(r => setTimeout(r, 1400));
+      }
+
       handleAnswerResponse(res.data);
     } catch {
       toast.error('Failed to submit answer. Please try again.');
@@ -228,7 +249,6 @@ const AgentChat = () => {
     setPhase('submitting');
     try {
       const res = await conversationApi.submit(sessionId);
-      // keys: risk_tier + friendly_message — both present in fixed backend
       const tier    = (res.data.risk_tier as string) || 'GREEN';
       const message = res.data.friendly_message || "Check-in complete. Take care!";
       setFinalTier(tier);
@@ -279,14 +299,19 @@ const AgentChat = () => {
     setTextInput('');
     setFinalTier(null);
     setIsListening(false);
+    setFacialDistress(0);
+    setDominantEmotion('neutral');
+    setFaceAnalyzerEnabled(false);
   };
 
-  // Indeterminate progress — we don't know total questions in single-question flow
   const progressPct = phase === 'done' ? 100
     : (phase === 'chatting' || phase === 'photo' || phase === 'submitting') ? 50
     : 0;
 
   const tierInfo = finalTier ? TIER_CONFIG[finalTier as keyof typeof TIER_CONFIG] : null;
+
+  // Get the latest CARA message to show as overlay on camera
+  const latestCaraMsg = messages.filter(m => m.role === 'cara').slice(-1)[0];
 
   return (
     <>
@@ -297,7 +322,11 @@ const AgentChat = () => {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 24, scale: 0.96 }}
             transition={{ type: 'spring', stiffness: 300, damping: 28 }}
-            className="fixed bottom-24 right-4 sm:right-6 w-[calc(100vw-2rem)] sm:w-[420px] h-[580px] glass-card flex flex-col z-50 shadow-2xl overflow-hidden rounded-2xl"
+            className={`fixed z-50 shadow-2xl overflow-hidden rounded-2xl flex flex-col ${
+              isCheckinActive
+                ? 'bottom-6 right-4 sm:right-6 w-[calc(100vw-2rem)] sm:w-[520px] h-[620px]'
+                : 'bottom-24 right-4 sm:right-6 w-[calc(100vw-2rem)] sm:w-[420px] h-[580px]'
+            } glass-card transition-all duration-500`}
           >
             {/* Header */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
@@ -317,6 +346,7 @@ const AgentChat = () => {
                   <p className="text-xs text-muted-foreground leading-tight">
                     {phase === 'done' ? 'Check-in complete ✓'
                     : phase === 'starting' ? 'Preparing your check-in...'
+                    : isCheckinActive ? 'Observing your check-in'
                     : phase === 'submitting' ? 'Processing...'
                     : 'Your health companion'}
                   </p>
@@ -352,127 +382,182 @@ const AgentChat = () => {
               />
             </div>
 
-            {/* Messages */}
-            <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
-              {messages.map((msg, idx) => (
-                <motion.div
-                  key={idx}
-                  initial={{ opacity: 0, y: 6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.2 }}
-                  className={`flex flex-col gap-1.5 ${msg.role === 'patient' ? 'items-end' : 'items-start'}`}
-                >
-                  <div className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
-                    msg.role === 'patient'
-                      ? 'bg-primary text-primary-foreground rounded-br-sm'
-                      : 'bg-muted text-foreground rounded-bl-sm'
-                  }`}>
-                    {msg.content}
+            {/* ── CAMERA-FIRST LAYOUT (during active check-in) ── */}
+            {isCheckinActive ? (
+              <div className="flex-1 flex flex-col overflow-hidden relative">
+                {/* Camera feed — takes most of the space */}
+                <div className="relative flex-1 bg-black rounded-b-none overflow-hidden">
+                  <FaceAnalyzer
+                    onDistressChange={handleDistressChange}
+                    enabled={faceAnalyzerEnabled}
+                  />
+
+                  {/* Distress meter overlay — top-right of camera */}
+                  {facialDistress >= 4 && (
+                    <motion.div
+                      initial={{ opacity: 0, x: 20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      className="absolute top-3 right-3 flex items-center gap-2 bg-black/60 backdrop-blur-sm rounded-full px-3 py-1.5"
+                    >
+                      <div className="h-2 w-20 rounded-full bg-white/20 overflow-hidden">
+                        <div
+                          className="h-full rounded-full transition-all duration-500"
+                          style={{
+                            width: `${facialDistress * 10}%`,
+                            background: facialDistress >= 7 ? '#ef4444' : facialDistress >= 4 ? '#f97316' : '#22c55e',
+                          }}
+                        />
+                      </div>
+                      <span className="text-xs text-white font-medium">
+                        {facialDistress}/10
+                      </span>
+                    </motion.div>
+                  )}
+
+                  {/* Emotion badge — top-left */}
+                  <div className="absolute top-3 left-3 bg-black/60 backdrop-blur-sm rounded-full px-3 py-1.5">
+                    <span className="text-xs text-white capitalize">{dominantEmotion}</span>
                   </div>
 
-                  {msg.role === 'cara' && msg.options && msg.isLatest && phase === 'chatting' && (
-                    <div className="flex flex-wrap gap-1.5 max-w-[85%]">
-                      {msg.options.map(opt => (
+                  {/* Latest CARA question — overlaid at bottom of camera */}
+                  {latestCaraMsg && (
+                    <motion.div
+                      key={latestCaraMsg.content}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 via-black/50 to-transparent px-4 pt-8 pb-3"
+                    >
+                      <p className="text-white text-sm leading-relaxed drop-shadow-lg">
+                        {latestCaraMsg.content}
+                      </p>
+                      {/* Quick option buttons overlaid */}
+                      {latestCaraMsg.options && latestCaraMsg.isLatest && phase === 'chatting' && (
+                        <div className="flex flex-wrap gap-1.5 mt-2">
+                          {latestCaraMsg.options.map(opt => (
+                            <motion.button
+                              key={opt}
+                              whileHover={{ scale: 1.03 }}
+                              whileTap={{ scale: 0.97 }}
+                              onClick={() => submitAnswer(opt)}
+                              className="text-xs px-3 py-1.5 rounded-full border border-white/40 bg-white/15 text-white hover:bg-white/25 backdrop-blur-sm transition-all"
+                            >
+                              {opt}
+                            </motion.button>
+                          ))}
+                        </div>
+                      )}
+                      {latestCaraMsg.questionType === 'photo_prompt' && latestCaraMsg.isLatest && phase === 'photo' && (
                         <motion.button
-                          key={opt}
                           initial={{ opacity: 0, scale: 0.9 }}
                           animate={{ opacity: 1, scale: 1 }}
-                          whileHover={{ scale: 1.03 }}
-                          whileTap={{ scale: 0.97 }}
-                          onClick={() => submitAnswer(opt)}
-                          className="text-xs px-3 py-1.5 rounded-full border border-primary/30 bg-primary/5 text-foreground hover:bg-primary/15 hover:border-primary/60 transition-all"
+                          onClick={() => fileInputRef.current?.click()}
+                          className="flex items-center gap-2 text-xs px-4 py-2 mt-2 rounded-xl border border-white/40 bg-white/15 text-white hover:bg-white/25 backdrop-blur-sm transition-all"
                         >
-                          {opt}
+                          <Upload size={13} /> Upload wound photo
                         </motion.button>
+                      )}
+                    </motion.div>
+                  )}
+
+                  {/* Loading indicator */}
+                  {(phase === 'starting' || phase === 'submitting') && (
+                    <div className="absolute bottom-4 left-4 bg-black/60 backdrop-blur-sm rounded-full px-4 py-2 flex items-center gap-2">
+                      {[0, 120, 240].map(d => (
+                        <span key={d} className="w-1.5 h-1.5 rounded-full bg-white/70 animate-bounce" style={{ animationDelay: `${d}ms` }} />
                       ))}
                     </div>
                   )}
+                </div>
 
-                  {msg.role === 'cara' && msg.questionType === 'photo_prompt' && msg.isLatest && phase === 'photo' && (
-                    <motion.button
-                      initial={{ opacity: 0, scale: 0.9 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      onClick={() => fileInputRef.current?.click()}
-                      className="flex items-center gap-2 text-xs px-4 py-2 rounded-xl border border-primary/40 bg-primary/10 text-primary hover:bg-primary/20 transition-all"
-                    >
-                      <Upload size={13} /> Upload wound photo
-                    </motion.button>
-                  )}
-                </motion.div>
-              ))}
-
-              {(phase === 'starting' || phase === 'submitting') && (
-                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex justify-start">
-                  <div className="bg-muted rounded-2xl rounded-bl-sm px-4 py-3 flex items-center gap-1.5">
-                    {[0, 120, 240].map(d => (
-                      <span key={d} className="w-1.5 h-1.5 rounded-full bg-muted-foreground/50 animate-bounce" style={{ animationDelay: `${d}ms` }} />
-                    ))}
-                  </div>
-                </motion.div>
-              )}
-
-              {phase === 'idle' && messages.length > 0 && (
-                <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="flex justify-center pt-2">
-                  <button
-                    onClick={startSession}
-                    className="px-6 py-2.5 rounded-xl gradient-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity shadow-md"
-                  >
-                    Start Check-in
-                  </button>
-                </motion.div>
-              )}
-
-              {phase === 'done' && tierInfo && (
-                <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="flex justify-center pt-2">
-                  <div className="border border-border rounded-xl px-5 py-3 text-center bg-muted/40 space-y-1">
-                    <div className="text-2xl">{tierInfo.icon}</div>
-                    <p className={`text-sm font-semibold ${tierInfo.color}`}>{tierInfo.label}</p>
-                    <p className="text-xs text-muted-foreground">Check-in recorded</p>
-                  </div>
-                </motion.div>
-              )}
-            </div>
-
-            {/* Text input bar — always visible during chatting/photo so user can type freely */}
-            <AnimatePresence>
-              {(phase === 'chatting' || phase === 'photo') && (
-                <motion.div
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: 10 }}
-                  className="px-3 pb-3 pt-2 border-t border-border shrink-0"
-                >
-                  <div className="flex items-center gap-2">
-                    {hasMic && (
+                {/* Input bar — pinned at bottom during camera mode */}
+                {(phase === 'chatting' || phase === 'photo') && (
+                  <div className="px-3 pb-3 pt-2 border-t border-border shrink-0">
+                    <div className="flex items-center gap-2">
+                      {hasMic && (
+                        <button
+                          onClick={isListening ? stopListening : startListening}
+                          className={`relative p-2.5 rounded-full transition-colors flex-shrink-0 ${
+                            isListening ? 'bg-destructive text-destructive-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'
+                          }`}
+                        >
+                          {isListening ? <MicOff size={15} /> : <Mic size={15} />}
+                          {isListening && <span className="absolute inset-0 rounded-full animate-ping bg-destructive/25 pointer-events-none" />}
+                        </button>
+                      )}
+                      <input
+                        value={textInput}
+                        onChange={e => setTextInput(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter' && textInput.trim()) submitAnswer(textInput.trim()); }}
+                        placeholder={isListening ? 'Listening…' : 'Type or speak your answer…'}
+                        autoFocus
+                        className="flex-1 bg-muted rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-ring/30"
+                      />
                       <button
-                        onClick={isListening ? stopListening : startListening}
-                        className={`relative p-2.5 rounded-full transition-colors flex-shrink-0 ${
-                          isListening ? 'bg-destructive text-destructive-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'
-                        }`}
+                        onClick={() => textInput.trim() && submitAnswer(textInput.trim())}
+                        disabled={!textInput.trim()}
+                        className="p-2.5 rounded-full bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-40 transition-opacity flex-shrink-0"
                       >
-                        {isListening ? <MicOff size={15} /> : <Mic size={15} />}
-                        {isListening && <span className="absolute inset-0 rounded-full animate-ping bg-destructive/25 pointer-events-none" />}
+                        <Send size={15} />
                       </button>
-                    )}
-                    <input
-                      value={textInput}
-                      onChange={e => setTextInput(e.target.value)}
-                      onKeyDown={e => { if (e.key === 'Enter' && textInput.trim()) submitAnswer(textInput.trim()); }}
-                      placeholder={isListening ? 'Listening…' : 'Type your answer…'}
-                      autoFocus
-                      className="flex-1 bg-muted rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-ring/30"
-                    />
-                    <button
-                      onClick={() => textInput.trim() && submitAnswer(textInput.trim())}
-                      disabled={!textInput.trim()}
-                      className="p-2.5 rounded-full bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-40 transition-opacity flex-shrink-0"
-                    >
-                      <Send size={15} />
-                    </button>
+                    </div>
                   </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
+                )}
+              </div>
+            ) : (
+              /* ── STANDARD CHAT LAYOUT (idle / done) ── */
+              <>
+                <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+                  {messages.map((msg, idx) => (
+                    <motion.div
+                      key={idx}
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.2 }}
+                      className={`flex flex-col gap-1.5 ${msg.role === 'patient' ? 'items-end' : 'items-start'}`}
+                    >
+                      <div className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
+                        msg.role === 'patient'
+                          ? 'bg-primary text-primary-foreground rounded-br-sm'
+                          : 'bg-muted text-foreground rounded-bl-sm'
+                      }`}>
+                        {msg.content}
+                      </div>
+                    </motion.div>
+                  ))}
+
+                  {(phase === 'starting' || phase === 'submitting') && (
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex justify-start">
+                      <div className="bg-muted rounded-2xl rounded-bl-sm px-4 py-3 flex items-center gap-1.5">
+                        {[0, 120, 240].map(d => (
+                          <span key={d} className="w-1.5 h-1.5 rounded-full bg-muted-foreground/50 animate-bounce" style={{ animationDelay: `${d}ms` }} />
+                        ))}
+                      </div>
+                    </motion.div>
+                  )}
+
+                  {phase === 'idle' && messages.length > 0 && (
+                    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="flex justify-center pt-2">
+                      <button
+                        onClick={startSession}
+                        className="px-6 py-2.5 rounded-xl gradient-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity shadow-md"
+                      >
+                        Start Check-in
+                      </button>
+                    </motion.div>
+                  )}
+
+                  {phase === 'done' && tierInfo && (
+                    <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="flex justify-center pt-2">
+                      <div className="border border-border rounded-xl px-5 py-3 text-center bg-muted/40 space-y-1">
+                        <div className="text-2xl">{tierInfo.icon}</div>
+                        <p className={`text-sm font-semibold ${tierInfo.color}`}>{tierInfo.label}</p>
+                        <p className="text-xs text-muted-foreground">Check-in recorded</p>
+                      </div>
+                    </motion.div>
+                  )}
+                </div>
+              </>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
