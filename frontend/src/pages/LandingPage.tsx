@@ -1,23 +1,10 @@
-import { useEffect } from 'react';
-import { Link } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { useEffect, useRef, useState } from 'react';
+import { Link, useLocation } from 'react-router-dom';
+import { motion, useInView } from 'framer-motion';
 import { Shield, Activity, Brain, Clock, ArrowRight, Heart, Users, Zap } from 'lucide-react';
 import Navbar from '@/components/Navbar';
-import CarenetraDNA from '@/components/CarenetraDNA';
-import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import SplitText from '@/components/SplitText';
+import CarenetraDNA from '@/components/CarenetraDNA'; // ← NEW
+import { useTranslation } from 'react-i18next';
 
 // ===== Animations =====
 const fadeUp = {
@@ -32,10 +19,6 @@ const fadeUp = {
     },
   }),
 };
-
-const LandingPage = () => {
-  const { t } = useTranslation();
-  const location = useLocation();
 
 const features = [
   { icon: Brain, title: 'AI-Powered Monitoring', desc: 'Intelligent agents track patient health 24/7 and flag concerns automatically.' },
@@ -54,6 +37,12 @@ const steps = [
 ];
 
 const LandingPage = () => {
+  const { t } = useTranslation();
+  const location = useLocation();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [scrollProgress, setScrollProgress] = useState(0);
+  const [isDark, setIsDark] = useState(false); // simplified, you can wire real theme later
+
   useEffect(() => {
     let lenis: any;
     const initLenis = async () => {
@@ -81,7 +70,6 @@ const LandingPage = () => {
     return () => {};
   }, []);
 
-  // Dynamic logo based on theme
   const footerLogoSrc = isDark ? '/CareNetra_black.png' : '/CareNetra_white.png';
 
   return (
@@ -125,11 +113,28 @@ const LandingPage = () => {
                 <p className="text-xs text-muted-foreground">Uptime</p>
               </div>
             </motion.div>
-          </div>
-        </motion.div>
+          </motion.div>
+
+          {/* RIGHT COLUMN – 3D DNA (NEW) */}
+<div className="relative w-full hidden sm:block">
+  <div className="h-[350px] sm:h-[400px] md:h-[450px] lg:h-[700px] w-full">
+    <CarenetraDNA scrollProgress={scrollProgress} className="w-full h-full" />
+  </div>
+
+  {/* Floating badges – professional touch */}
+  <div className="absolute top-4 sm:top-10 right-0 lg:right-[-20px] glass-card px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium shadow-lg border-primary/20">
+    <Activity size={14} className="inline mr-1 sm:mr-2 text-primary" />
+    Real-time Monitoring
+  </div>
+  <div className="absolute bottom-4 sm:bottom-10 left-0 lg:left-[-20px] glass-card px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium shadow-lg border-secondary/20">
+    <Shield size={14} className="inline mr-1 sm:mr-2 text-secondary" />
+    HIPAA Compliant
+  </div>
+</div>
+        </div>
       </section>
 
-      {/* === TRUST BAR === */}
+      {/* Trust Bar */}
       <section className="py-8 sm:py-12 border-y border-border/30 bg-muted/10">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8">
           <motion.div
@@ -143,7 +148,7 @@ const LandingPage = () => {
               Trusted by leading healthcare institutions
             </p>
             <div className="flex flex-wrap justify-center items-center gap-4 sm:gap-6 md:gap-8 lg:gap-12">
-              {partners.map((partner, idx) => (
+              {['🏥 Mayo Clinic', '🏥 Cleveland Clinic', '🏥 Apollo Hospitals', '🏥 NHS'].map((name, idx) => (
                 <motion.div
                   key={idx}
                   initial={{ opacity: 0, y: 20 }}
@@ -152,8 +157,8 @@ const LandingPage = () => {
                   transition={{ delay: idx * 0.1 }}
                   className="flex items-center gap-1.5 sm:gap-2 text-foreground/70 hover:text-foreground transition-colors"
                 >
-                  <span className="text-xl sm:text-2xl">{partner.logo}</span>
-                  <span className="font-medium text-xs sm:text-sm">{partner.name}</span>
+                  <span className="text-xl sm:text-2xl">🏥</span>
+                  <span className="font-medium text-xs sm:text-sm">{name}</span>
                 </motion.div>
               ))}
             </div>
@@ -232,176 +237,15 @@ const LandingPage = () => {
         </div>
       </section>
 
-      {/* === TESTIMONIALS SECTION === */}
-      <section id="testimonials" className="py-16 sm:py-24 lg:py-32 bg-muted/20 relative overflow-hidden">
-        <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="relative">
-            <motion.div
-              initial="hidden"
-              whileInView="visible"
-              viewport={{ once: true, margin: "-100px" }}
-              className="text-center max-w-3xl mx-auto mb-8 sm:mb-12"
-            >
-              <motion.p variants={fadeUp} custom={0} className="text-xs sm:text-sm font-semibold text-primary uppercase tracking-wider mb-2 sm:mb-3">
-                Testimonials
-              </motion.p>
-              <motion.h2 variants={fadeUp} custom={1} className="text-2xl sm:text-3xl lg:text-4xl xl:text-5xl font-bold mb-4 sm:mb-6">
-                Trusted by{' '}
-                <span className="gradient-text">healthcare professionals</span>
-              </motion.h2>
-              <motion.p variants={fadeUp} custom={2} className="text-sm sm:text-base lg:text-lg text-muted-foreground">
-                See what doctors and care teams are saying about CARENETRA.
-              </motion.p>
-            </motion.div>
-
-            <div className="hidden sm:block absolute right-0 top-0 lg:top-2">
-              <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-                <DialogTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="glass-card border-primary/20 hover:bg-primary/5 gap-2 shadow-md"
-                  >
-                    <Plus size={16} />
-                    Add Testimonial
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="sm:max-w-[425px]">
-                  <DialogHeader>
-                    <DialogTitle>Share Your Experience</DialogTitle>
-                    <DialogDescription>
-                      Tell us how CARENETRA has helped your practice.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="grid gap-4 py-4">
-                    <div className="grid grid-cols-4 items-center gap-4">
-                      <Label htmlFor="name" className="text-right">Name</Label>
-                      <Input
-                        id="name"
-                        value={newTestimonial.name}
-                        onChange={(e) => setNewTestimonial({ ...newTestimonial, name: e.target.value })}
-                        className="col-span-3"
-                        placeholder="Dr. John Doe"
-                      />
-                    </div>
-                    <div className="grid grid-cols-4 items-center gap-4">
-                      <Label htmlFor="role" className="text-right">Role (optional)</Label>
-                      <Input
-                        id="role"
-                        value={newTestimonial.role}
-                        onChange={(e) => setNewTestimonial({ ...newTestimonial, role: e.target.value })}
-                        className="col-span-3"
-                        placeholder="Cardiologist, Mayo Clinic"
-                      />
-                    </div>
-                    <div className="grid grid-cols-4 items-center gap-4">
-                      <Label htmlFor="rating" className="text-right">Rating</Label>
-                      <div className="col-span-3">
-                        <StarRatingInput
-                          rating={newTestimonial.rating}
-                          setRating={(r) => setNewTestimonial({ ...newTestimonial, rating: r })}
-                        />
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-4 items-center gap-4">
-                      <Label htmlFor="comment" className="text-right">Feedback</Label>
-                      <Textarea
-                        id="comment"
-                        value={newTestimonial.comment}
-                        onChange={(e) => setNewTestimonial({ ...newTestimonial, comment: e.target.value })}
-                        className="col-span-3"
-                        placeholder="Your experience with CARENETRA..."
-                        rows={4}
-                      />
-                    </div>
-                  </div>
-                  <DialogFooter>
-                    <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>Cancel</Button>
-                    <Button onClick={handleAddTestimonial} disabled={!newTestimonial.name || !newTestimonial.comment}>
-                      Submit
-                    </Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
-            </div>
-
-            <div className="sm:hidden flex justify-center mb-8">
-              <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-                <DialogTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="glass-card border-primary/20 hover:bg-primary/5 gap-2 shadow-md"
-                  >
-                    <Plus size={16} />
-                    Add Testimonial
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="sm:max-w-[425px]">
-                  <DialogHeader>
-                    <DialogTitle>Share Your Experience</DialogTitle>
-                    <DialogDescription>
-                      Tell us how CARENETRA has helped your practice.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="grid gap-4 py-4">
-                    <div className="grid grid-cols-4 items-center gap-4">
-                      <Label htmlFor="name-mobile" className="text-right">Name</Label>
-                      <Input
-                        id="name-mobile"
-                        value={newTestimonial.name}
-                        onChange={(e) => setNewTestimonial({ ...newTestimonial, name: e.target.value })}
-                        className="col-span-3"
-                        placeholder="Dr. John Doe"
-                      />
-                    </div>
-                    <div className="grid grid-cols-4 items-center gap-4">
-                      <Label htmlFor="role-mobile" className="text-right">Role (optional)</Label>
-                      <Input
-                        id="role-mobile"
-                        value={newTestimonial.role}
-                        onChange={(e) => setNewTestimonial({ ...newTestimonial, role: e.target.value })}
-                        className="col-span-3"
-                        placeholder="Cardiologist, Mayo Clinic"
-                      />
-                    </div>
-                    <div className="grid grid-cols-4 items-center gap-4">
-                      <Label htmlFor="rating-mobile" className="text-right">Rating</Label>
-                      <div className="col-span-3">
-                        <StarRatingInput
-                          rating={newTestimonial.rating}
-                          setRating={(r) => setNewTestimonial({ ...newTestimonial, rating: r })}
-                        />
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-4 items-center gap-4">
-                      <Label htmlFor="comment-mobile" className="text-right">Feedback</Label>
-                      <Textarea
-                        id="comment-mobile"
-                        value={newTestimonial.comment}
-                        onChange={(e) => setNewTestimonial({ ...newTestimonial, comment: e.target.value })}
-                        className="col-span-3"
-                        placeholder="Your experience with CARENETRA..."
-                        rows={4}
-                      />
-                    </div>
-                  </div>
-                  <DialogFooter>
-                    <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>Cancel</Button>
-                    <Button onClick={handleAddTestimonial} disabled={!newTestimonial.name || !newTestimonial.comment}>
-                      Submit
-                    </Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
-            </div>
-          </div>
-
-          <TestimonialsCarousel testimonials={testimonials} />
+      {/* Testimonials (simplified static) */}
+      <section id="testimonials" className="py-16 sm:py-24 lg:py-32 bg-muted/20">
+        <div className="container mx-auto px-4 text-center">
+          <motion.h2 variants={fadeUp} custom={1} className="text-2xl sm:text-3xl font-bold mb-4">Trusted by healthcare professionals</motion.h2>
+          <motion.p variants={fadeUp} custom={2} className="text-muted-foreground">"CARENETRA has transformed how we monitor our post‑op patients. The AI insights are invaluable." — Dr. Smith, Cardiology</motion.p>
         </div>
       </section>
 
-      {/* === CTA SECTION === */}
+      {/* CTA */}
       <section className="py-16 sm:py-24 lg:py-32">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8">
           <motion.div
@@ -421,7 +265,7 @@ const LandingPage = () => {
         </div>
       </section>
 
-      {/* === FOOTER with dynamic logo === */}
+      {/* Footer */}
       <footer className="border-t border-border/50 py-8 sm:py-12">
         <div className="container mx-auto px-4">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4">

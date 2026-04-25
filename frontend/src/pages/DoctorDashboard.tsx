@@ -356,12 +356,11 @@ const DoctorDashboard = () => {
         <motion.div initial="hidden" animate="visible" className="space-y-6">
 
           {/* Header */}
-          <div className="flex flex-wrap items-center justify-between gap-4">
+          <motion.div className="flex flex-wrap items-center justify-between gap-4">
             <div>
               <h1 className="text-xl font-bold text-foreground">{t('doctorDashboard.title')}</h1>
               <p className="text-sm text-muted-foreground">{t('doctorDashboard.patientsMonitored', { count: dashData.total_patients })}</p>
             </div>
-            {/* Primary CTA — always visible */}
             <button
               onClick={() => navigate('/doctor/create-course')}
               className="flex items-center gap-2 px-4 py-2.5 rounded-xl gradient-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity shadow-md"
@@ -370,7 +369,7 @@ const DoctorDashboard = () => {
             </button>
           </motion.div>
 
-          {/* ── Stats ────────────────────────────────────────────────────────── */}
+          {/* Stats */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {[
               { label: t('doctorDashboard.totalPatients'), value: dashData.total_patients, icon: Users,         color: 'text-primary' },
@@ -390,13 +389,10 @@ const DoctorDashboard = () => {
 
           <div className="grid lg:grid-cols-5 gap-6">
 
-            {/* ── Patient list ──────────────────────────────────────────────── */}
+            {/* Patient list */}
             <motion.div custom={5} variants={fadeUp} className="lg:col-span-2 glass-card p-4 flex flex-col">
-
-              {/* List header */}
               <div className="flex items-center gap-2 mb-3">
                 <h2 className="font-semibold text-foreground text-sm flex-1">{t('doctorDashboard.patients')}</h2>
-                {/* Add Patient button */}
                 <button
                   onClick={openAddPanel}
                   title={t('doctorDashboard.findPatientTitle')}
@@ -567,10 +563,9 @@ const DoctorDashboard = () => {
                     )}
                   </div>
 
-                  {/* Risk score trend chart */}
                   {chartData.length > 0 && (
-                    <div className="glass-card p-5">
-                      <h3 className="text-sm font-semibold text-foreground mb-4">{t('doctorDashboard.riskScoreTrend')}</h3>
+<motion.div className="glass-card p-5">
+                        <h3 className="text-sm font-semibold text-foreground mb-4">{t('doctorDashboard.riskScoreTrend')}</h3>
                       <div className="h-52">
                         <ResponsiveContainer width="100%" height="100%">
                           <AreaChart data={chartData}>
@@ -584,6 +579,9 @@ const DoctorDashboard = () => {
                         </ResponsiveContainer>
                       </div>
                     </motion.div>
+                  )}
+
+                  {chartData.length > 0 && (
                     <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-50px" }} transition={{ duration: 0.5, delay: 0.1 }} className="glass-card rounded-3xl p-5">
                       <h3 className="text-sm font-semibold mb-3 flex items-center gap-2"><Brain size={15} className="text-purple-400" /> AI Insights</h3>
                       <div className="space-y-3">
@@ -595,7 +593,7 @@ const DoctorDashboard = () => {
                         <div className="flex items-center justify-between text-xs"><span className="text-muted-foreground">Recommended action</span><span className="font-medium text-primary">Schedule follow-up in 3 days</span></div>
                       </div>
                     </motion.div>
-                  </div>
+                  )}
 
                   {symptomSeverityData.length > 0 && (
                     <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-50px" }} transition={{ duration: 0.5, delay: 0.2 }} className="glass-card rounded-3xl p-5">
@@ -757,7 +755,6 @@ const DoctorDashboard = () => {
                     </div>
                   )}
 
-                  {/* Send message */}
                   <div className="glass-card p-5">
                     <h3 className="text-sm font-semibold text-foreground mb-3">{t('doctorDashboard.sendMessage')}</h3>
                     <div className="flex gap-2">

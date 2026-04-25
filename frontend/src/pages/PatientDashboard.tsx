@@ -416,7 +416,7 @@ const PatientDashboard = () => {
                 {data.unread_messages} {t('patient.newMessages')}
               </span>
             )}
-          </div>
+          </h2>
           <div className="space-y-3">
             {messages.length > 0 ? (
               messages.map((msg) => (
