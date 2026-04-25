@@ -28,8 +28,8 @@ QUESTIONS = {
 
     "general_feeling": {
         "id":       "general_feeling",
-        "question": "Hi {name}! This is your Day {day} check-in. How are you feeling overall today?",
-        "spoken":   "Hi {name}! How are you feeling today?",
+        "question": "How are you feeling overall today?",
+        "spoken":   "How are you feeling today?",
         "type":     "mcq",
         "options":  ["Feeling good", "Okay, managing", "Not doing great"],
     },

@@ -299,6 +299,7 @@ class ImpactAlert(Base):
     sms_sent:            Mapped[bool] = mapped_column(Boolean, default=False)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
     responder: Mapped["VolunteerProfile"] = relationship(
         "VolunteerProfile", back_populates="responses",
@@ -597,6 +598,8 @@ class AgentSession(Base):
 
     # Trigger: "patient_initiated" | "agent_triggered" | "wound_request"
     trigger: Mapped[str] = mapped_column(String(50), default="patient_initiated")
+    
+    language: Mapped[str] = mapped_column(String(10), default="en")
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(

@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
+import { useTranslation } from 'react-i18next';
 import { conversationApi } from '@/lib/api';
 import FaceAnalyzer from '@/components/FaceAnalyzer';
 import { getEmpatheticReply } from '@/lib/nvidiaApi';
@@ -42,6 +43,7 @@ const TIER_CONFIG = {
 } as const;
 
 const AgentChat = () => {
+  const { i18n } = useTranslation();
   const [open, setOpen]                   = useState(false);
   const [phase, setPhase]                 = useState<Phase>('idle');
   const [sessionId, setSessionId]         = useState<string | null>(null);
@@ -52,6 +54,7 @@ const AgentChat = () => {
   const [isSpeaking, setIsSpeaking]       = useState(false);
   const [ttsEnabled, setTtsEnabled]       = useState(true);
   const [finalTier, setFinalTier]         = useState<string | null>(null);
+  const [currentLanguage, setCurrentLanguage] = useState<string>(i18n.language);
 
   const [facialDistress,       setFacialDistress]       = useState(0);
   const [dominantEmotion,      setDominantEmotion]      = useState('neutral');
@@ -85,6 +88,14 @@ const AgentChat = () => {
   }, [hasTTS]);
 
   useEffect(() => {
+    const handleLanguageChange = () => {
+      setCurrentLanguage(i18n.language);
+    };
+    i18n.on('languageChanged', handleLanguageChange);
+    return () => i18n.off('languageChanged', handleLanguageChange);
+  }, [i18n]);
+
+  useEffect(() => {
     const handler = () => setOpen(true);
     window.addEventListener('carenetra:open-agent-chat', handler);
     return () => window.removeEventListener('carenetra:open-agent-chat', handler);
@@ -96,23 +107,47 @@ const AgentChat = () => {
 
   // ── TTS ───────────────────────────────────────────────────────────────────────
 
+  const getLanguageCode = (lang: string): string => {
+    const map: Record<string, string> = {
+      en: 'en-US',
+      hi: 'hi-IN',
+      mr: 'mr-IN',
+    };
+    return map[lang] || 'en-US';
+  };
+
   const speak = useCallback((text: string) => {
     if (!hasTTS || !ttsEnabled) return;
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
     const voices    = window.speechSynthesis.getVoices();
-    const preferred = voices.find(v =>
-      v.name.includes('Samantha') || v.name.includes('Karen') || v.name.includes('Victoria') ||
-      (v.lang.startsWith('en') && v.name.toLowerCase().includes('female'))
-    ) || voices.find(v => v.lang === 'en-US' || v.lang === 'en-GB');
+    const langCode = getLanguageCode(currentLanguage);
+    
+    // Try to find voice in current language
+    let preferred = voices.find(v => v.lang.toLowerCase().startsWith(langCode.toLowerCase().split('-')[0]));
+    
+    // Fallback: If Marathi is missing, try Hindi (Devanagari script is common)
+    if (!preferred && currentLanguage === 'mr') {
+      preferred = voices.find(v => v.lang.toLowerCase().startsWith('hi'));
+    }
+
+    // Fallback for English specific voices
+    if (!preferred && currentLanguage === 'en') {
+      preferred = voices.find(v =>
+        v.name.includes('Samantha') || v.name.includes('Karen') || v.name.includes('Victoria') ||
+        (v.lang.startsWith('en') && v.name.toLowerCase().includes('female'))
+      ) || voices.find(v => v.lang === 'en-US' || v.lang === 'en-GB');
+    }
+    
     if (preferred) utterance.voice = preferred;
+    utterance.lang = preferred ? preferred.lang : langCode;
     utterance.rate    = 0.92;
     utterance.pitch   = 1.08;
     utterance.onstart = () => setIsSpeaking(true);
     utterance.onend   = () => setIsSpeaking(false);
     utterance.onerror = () => setIsSpeaking(false);
     window.speechSynthesis.speak(utterance);
-  }, [hasTTS, ttsEnabled]);
+  }, [hasTTS, ttsEnabled, currentLanguage]);
 
   const addMsg = useCallback((msg: ChatMessage) => {
     setMessages(prev => [
@@ -143,18 +178,20 @@ const AgentChat = () => {
   // ── Session flow ──────────────────────────────────────────────────────────────
 
   const initChat = async () => {
+    // Do NOT check for active sessions — always start fresh
+    const welcomeMsg = i18n.t('chat.welcome');
     addMsg({
       role: 'cara',
-      content: "Hi! I'm CARA, your personal health companion. Press Start to begin your check-in.",
+      content: welcomeMsg,
     });
-    speak("Hi! I'm CARA. Press Start whenever you're ready.");
+    speak(welcomeMsg);
     setPhase('idle');
   };
 
   const startSession = async () => {
     setPhase('starting');
     try {
-      const res = await conversationApi.start();
+      const res = await conversationApi.start(i18n.language);
       setSessionId(res.data.session_id);
       setFaceAnalyzerEnabled(true);
 
@@ -202,22 +239,7 @@ const AgentChat = () => {
     setPhase('submitting');
 
     try {
-      const [res, empatheticLine] = await Promise.all([
-        conversationApi.answer(sessionId, currentQ.id, answer),
-        getEmpatheticReply({
-          caraQuestion:   currentQ.question,
-          patientAnswer:  answer,
-          distressScore:  facialDistress,
-          dominantEmotion,
-        }),
-      ]);
-
-      if (empatheticLine) {
-        addMsg({ role: 'cara', content: empatheticLine });
-        speak(empatheticLine);
-        await new Promise(r => setTimeout(r, 1400));
-      }
-
+      const res = await conversationApi.answer(sessionId, currentQ.id, answer, i18n.language);
       handleAnswerResponse(res.data);
     } catch {
       toast.error('Failed to submit answer. Please try again.');
@@ -268,7 +290,7 @@ const AgentChat = () => {
     if (!SR) return;
     window.speechSynthesis.cancel();
     const rec          = new SR();
-    rec.lang           = 'en-US';
+    rec.lang           = getLanguageCode(currentLanguage);
     rec.interimResults = false;
     rec.onresult = (e: any) => { setTextInput(e.results[0][0].transcript); setIsListening(false); };
     rec.onerror  = () => setIsListening(false);

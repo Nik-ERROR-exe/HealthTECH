@@ -5,6 +5,7 @@ import {
   Loader2, RefreshCw, Shield, ShieldOff,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useTranslation } from 'react-i18next';
 import DashboardLayout from '@/components/DashboardLayout';
 import { getUser } from '@/lib/auth';
 import api from '@/lib/api';
@@ -42,6 +43,7 @@ interface DashboardData {
 
 const VolunteerDashboard = () => {
   const user = getUser();
+  const { t, i18n } = useTranslation();
   const [data, setData]           = useState<DashboardData | null>(null);
   const [loading, setLoading]     = useState(true);
   const [responding, setResponding] = useState<string | null>(null); // alert_id being responded to
@@ -52,7 +54,9 @@ const VolunteerDashboard = () => {
   const fetchDashboard = async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const res = await api.get('/volunteer/dashboard');
+      const currentLang = i18n.resolvedLanguage || i18n.language || 'en';
+      const langCode = currentLang.split('-')[0];
+      const res = await api.get('/volunteer/dashboard', { params: { language: langCode } });
       setData(res.data);
       setLastRefresh(new Date());
     } catch (err: any) {
@@ -139,9 +143,9 @@ const VolunteerDashboard = () => {
     return (
       <DashboardLayout>
         <div className="flex flex-col items-center justify-center h-[60vh] gap-4">
-          <p className="text-muted-foreground">Could not load dashboard.</p>
+          <p className="text-muted-foreground">{t('volunteerDashboard.loadError')}</p>
           <button onClick={() => fetchDashboard()} className="px-4 py-2 rounded-lg gradient-primary text-primary-foreground text-sm">
-            Retry
+            {t('common.retry')}
           </button>
         </div>
       </DashboardLayout>
@@ -157,7 +161,7 @@ const VolunteerDashboard = () => {
           <div className="flex items-start justify-between gap-4">
             <div>
               <h1 className="text-xl font-bold text-primary-foreground">
-                Volunteer Dashboard
+                {t('volunteerDashboard.title')}
               </h1>
               <p className="text-primary-foreground/80 text-sm mt-0.5">
                 {data.volunteer_name}
@@ -175,7 +179,7 @@ const VolunteerDashboard = () => {
             >
               {toggling ? <Loader2 size={11} className="animate-spin" /> :
                data.is_available ? <Shield size={11} /> : <ShieldOff size={11} />}
-              {data.is_available ? 'Available' : 'Off duty'}
+              {data.is_available ? t('volunteerDashboard.available') : t('volunteerDashboard.offDuty')}
             </button>
           </div>
         </motion.div>
@@ -184,8 +188,11 @@ const VolunteerDashboard = () => {
         <motion.div custom={1} variants={fadeUp} className="flex items-center justify-between px-1">
           <p className="text-xs text-muted-foreground">
             {data.alert_count === 0
-              ? 'No active alerts in your area'
-              : `${data.alert_count} active alert${data.alert_count > 1 ? 's' : ''}`}
+              ? t('volunteerDashboard.noActiveAlerts')
+              : data.alert_count === 1 
+                ? t('volunteerDashboard.activeAlerts', { count: 1 })
+                : t('volunteerDashboard.activeAlertsPlural', { count: data.alert_count })
+            }
           </p>
           <button
             onClick={() => fetchDashboard(true)}
@@ -206,8 +213,8 @@ const VolunteerDashboard = () => {
               className="glass-card p-10 text-center"
             >
               <CheckCircle size={40} className="text-emerald-400/40 mx-auto mb-3" />
-              <p className="text-muted-foreground text-sm">No active emergency alerts.</p>
-              <p className="text-xs text-muted-foreground mt-1">This page refreshes automatically every 10 seconds.</p>
+              <p className="text-muted-foreground text-sm">{t('volunteerDashboard.noEmergencyAlerts')}</p>
+              <p className="text-xs text-muted-foreground mt-1">{t('volunteerDashboard.refreshesAutomatically')}</p>
             </motion.div>
           ) : (
             data.active_alerts.map((alert, i) => (
@@ -229,9 +236,9 @@ const VolunteerDashboard = () => {
                     : 'bg-destructive/10 text-destructive'
                 }`}>
                   {alert.status === 'RESPONDING' ? (
-                    <><CheckCircle size={11} /> Volunteer responding</>
+                    <><CheckCircle size={11} /> {t('volunteerDashboard.volunteerResponding')}</>
                   ) : (
-                    <><motion.span animate={{ opacity: [1, 0.4, 1] }} transition={{ repeat: Infinity, duration: 1.2 }}><AlertTriangle size={11} /></motion.span> NEEDS HELP — {alert.minutes_ago < 1 ? 'just now' : `${alert.minutes_ago}m ago`}</>
+                    <><motion.span animate={{ opacity: [1, 0.4, 1] }} transition={{ repeat: Infinity, duration: 1.2 }}><AlertTriangle size={11} /></motion.span> {alert.minutes_ago < 1 ? t('volunteerDashboard.needsHelpNow') : t('volunteerDashboard.needsHelpAgo', { minutes: alert.minutes_ago })}</>
                   )}
                 </div>
 
@@ -260,8 +267,8 @@ const VolunteerDashboard = () => {
                   {alert.status === 'RESPONDING' && alert.responder_name && (
                     <div className="bg-emerald-500/10 rounded-lg px-3 py-2 text-xs text-emerald-400">
                       {alert.i_am_responding
-                        ? '✓ You are responding to this alert'
-                        : `✓ ${alert.responder_name} is responding`}
+                        ? t('volunteerDashboard.youAreResponding')
+                        : t('volunteerDashboard.otherIsResponding', { name: alert.responder_name })}
                     </div>
                   )}
 
@@ -274,7 +281,7 @@ const VolunteerDashboard = () => {
                         rel="noopener noreferrer"
                         className="flex items-center gap-1.5 text-xs px-4 py-2.5 rounded-xl border border-border text-foreground hover:bg-muted transition-colors flex-1 justify-center font-medium"
                       >
-                        <MapPin size={13} /> Open in Maps
+                        <MapPin size={13} /> {t('volunteerDashboard.openInMaps')}
                       </a>
                     )}
 
@@ -285,14 +292,14 @@ const VolunteerDashboard = () => {
                         className="flex items-center gap-1.5 text-xs px-4 py-2.5 rounded-xl gradient-primary text-primary-foreground hover:opacity-90 disabled:opacity-50 flex-1 justify-center font-semibold transition-opacity"
                       >
                         {responding === alert.alert_id
-                          ? <><Loader2 size={13} className="animate-spin" /> Confirming...</>
-                          : '🏃 I\'m Responding'}
+                          ? <><Loader2 size={13} className="animate-spin" /> {t('volunteerDashboard.confirming')}</>
+                          : <>🏃 {t('volunteerDashboard.imResponding')}</>}
                       </button>
                     )}
 
                     {alert.i_am_responding && (
                       <div className="flex items-center gap-1.5 text-xs px-4 py-2.5 rounded-xl bg-emerald-500/10 text-emerald-400 flex-1 justify-center font-medium border border-emerald-500/20">
-                        <CheckCircle size={13} /> You're on the way
+                        <CheckCircle size={13} /> {t('volunteerDashboard.youAreOnTheWay')}
                       </div>
                     )}
                   </div>
@@ -304,12 +311,12 @@ const VolunteerDashboard = () => {
 
         {/* How it works */}
         <motion.div custom={99} variants={fadeUp} className="glass-card p-5">
-          <h3 className="text-sm font-semibold text-foreground mb-3">How CARENETRA Volunteer Works</h3>
+          <h3 className="text-sm font-semibold text-foreground mb-3">{t('volunteerDashboard.howItWorks')}</h3>
           <div className="space-y-2 text-xs text-muted-foreground">
-            <p>🔔 When a patient's phone detects a high-impact event, you receive an SMS alert.</p>
-            <p>📍 Tap "Open in Maps" to navigate to their last known GPS location.</p>
-            <p>🏃 Tap "I'm Responding" to let the system know help is coming — the patient and other volunteers will see your confirmation.</p>
-            <p>🟢 Set yourself "Off duty" when you're unavailable to stop receiving alerts.</p>
+            <p>{t('volunteerDashboard.hwStep1')}</p>
+            <p>{t('volunteerDashboard.hwStep2')}</p>
+            <p>{t('volunteerDashboard.hwStep3')}</p>
+            <p>{t('volunteerDashboard.hwStep4')}</p>
           </div>
         </motion.div>
 

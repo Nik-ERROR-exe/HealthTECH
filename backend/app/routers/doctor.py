@@ -57,6 +57,7 @@ def _tier_sort_key(tier: str | None) -> int:
 
 @router.get("/dashboard")
 def get_doctor_dashboard(
+    language: str = "en",
     current_user: User    = Depends(require_doctor),
     db:           Session = Depends(get_db),
 ):
@@ -163,6 +164,7 @@ def get_doctor_dashboard(
 @router.get("/patient/{patient_id}")
 def get_patient_detail(
     patient_id:   str,
+    language: str = "en",
     current_user: User    = Depends(require_doctor),
     db:           Session = Depends(get_db),
 ):
@@ -683,7 +685,7 @@ async def _trigger_demo_ambulance(alert: Alert, doctor: User, db: Session) -> st
     DEMO: Sends SMS to the doctor's own number as ambulance confirmation.
     In production: replace with real emergency dispatch API.
     """
-    from app.services.alert_service import send_sms_alert
+    from services.alert_service import send_sms_alert
     from app.config import settings
 
     patient_profile = db.query(PatientProfile).filter(

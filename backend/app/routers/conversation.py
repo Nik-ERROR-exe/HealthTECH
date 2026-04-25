@@ -11,6 +11,7 @@ from typing import Optional, List, Dict, Any
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 from pydantic import BaseModel
 
 from app.database import get_db
@@ -21,6 +22,7 @@ from app.models.models import (
 )
 from app.nodes.caretaker_agent import start_conversation, process_answer
 from app.agents.graph import run_agent_pipeline
+from app.services.translation_service import translation_service
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +80,7 @@ TIER_MESSAGES = {
 class AnswerRequest(BaseModel):
     question_id: str
     answer: str
+    language: str = "en"  # Language code (en, hi, mr)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -253,12 +256,14 @@ async def get_active_session(
 
 @router.post("/start")
 async def start_conversation_endpoint(
+    language: str = "en",
     current_patient: PatientProfile = Depends(get_current_patient),
     db: Session = Depends(get_db),
 ):
     """
     Starts a new dynamic check-in session.
     Returns a greeting and the first clinical question.
+    Supports multilingual responses (en, hi, mr).
     """
     # Abandon any stale active sessions
     stale = db.query(AgentSession).filter(
@@ -287,11 +292,19 @@ async def start_conversation_endpoint(
     first_q = result["first_question"]
     state = result["state"]
 
-    # Store state in session
+    # Translate greeting and question if needed
+    if language != "en":
+        greeting = translation_service.translate_text(greeting, language)
+        first_q["question"] = translation_service.translate_text(first_q["question"], language)
+        if "options" in first_q and first_q["options"]:
+            first_q["options"] = translation_service.translate_list(first_q["options"], language)
+
+    # Store state and language in session
     session = AgentSession(
         patient_id=current_patient.id,
         status="active",
         trigger="patient_initiated",
+        language=language,  # Store language preference
         conversation=[{
             "role": "state",
             "data": state,
@@ -306,13 +319,14 @@ async def start_conversation_endpoint(
 
     logger.info(
         f"[Conversation] Dynamic session {session.id} started — "
-        f"patient={current_patient.id} course={course.course_name}"
+        f"patient={current_patient.id} course={course.course_name} language={language}"
     )
 
     return {
         "session_id": session.id,
         "greeting": greeting,
         "first_question": first_q,
+        "language": language,
     }
 
 
@@ -328,18 +342,26 @@ async def submit_answer(
     """
     Stores the answer, decides the next question, and returns it.
     If the conversation is complete, triggers the pipeline and returns final result.
+    Supports multilingual responses.
     """
     session = _get_session(session_id, current_patient.id, db)
 
     if session.status != "active":
         raise HTTPException(status_code=400, detail="Session is not active")
 
+    # Get session language preference
+    session_language = session.language if hasattr(session, 'language') else req.language
+
     # Extract current state
     conversation = list(session.conversation or [])
     state = _extract_state_from_conversation(conversation)
 
-    # Process the answer
-    result = await process_answer(state, req.question_id, req.answer)
+    # Process the answer (translate back to English if needed for processing)
+    answer_text = req.answer
+    if session_language != "en":
+        answer_text = translation_service.translate_text(req.answer, "en")
+
+    result = await process_answer(state, req.question_id, answer_text)
 
     # Update state in session
     updated_conversation = _update_state_in_conversation(conversation, result["state"])
@@ -354,16 +376,34 @@ async def submit_answer(
         "answered_at": datetime.now(timezone.utc).isoformat(),
     })
     session.conversation = updated_conversation
+    flag_modified(session, "conversation")
 
     if result["should_submit"]:
         # Conversation complete; run pipeline now
         pipeline_result = await _run_pipeline_and_complete(
             session, current_patient, result["state"].get("course_id"), db
         )
+        
+        # Translate final response if needed
+        if session_language != "en":
+            if "friendly_message" in pipeline_result:
+                pipeline_result["friendly_message"] = translation_service.translate_text(
+                    pipeline_result["friendly_message"],
+                    session_language
+                )
+        
+        pipeline_result["language"] = session_language
         return pipeline_result
     else:
         # Return next question
         next_q = result["next_question"]
+        
+        # Translate question if needed
+        if session_language != "en":
+            next_q["question"] = translation_service.translate_text(next_q["question"], session_language)
+            if "options" in next_q and next_q["options"]:
+                next_q["options"] = translation_service.translate_list(next_q["options"], session_language)
+        
         # Update pending question in session
         session.pending_question = next_q["question"]
         session.pending_options = next_q.get("options", [])
@@ -372,6 +412,7 @@ async def submit_answer(
         return {
             "status": "ok",
             "next_question": next_q,
+            "language": session_language,
         }
 
 
@@ -413,6 +454,7 @@ async def upload_wound_photo(
         "uploaded_at": datetime.now(timezone.utc).isoformat(),
     })
     session.conversation = conversation
+    flag_modified(session, "conversation")
     db.commit()
 
     logger.info(f"[Conversation] Wound photo saved: {path}")
