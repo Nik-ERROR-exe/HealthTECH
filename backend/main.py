@@ -1,7 +1,9 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 import os
+import logging
 
 from app.config import settings
 from app.database import engine, Base
@@ -64,6 +66,16 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
+
+logger = logging.getLogger(__name__)
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"[GLOBAL ERROR] {request.method} {request.url} → {exc}")
+    return JSONResponse(
+        status_code=200,
+        content={"data": None, "error": str(exc), "message": "No data available"},
+    )
 
 
 if __name__ == "__main__":
