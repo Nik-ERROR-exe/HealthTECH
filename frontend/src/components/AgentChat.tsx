@@ -126,7 +126,7 @@ const AgentChat = () => {
     // Try to find voice in current language
     let preferred = voices.find(v => v.lang.toLowerCase().startsWith(langCode.toLowerCase().split('-')[0]));
     
-    // Fallback: If Marathi is missing, try Hindi (Devanagari script is common)
+    // Fallback: If Marathi is missing, try Hindi
     if (!preferred && currentLanguage === 'mr') {
       preferred = voices.find(v => v.lang.toLowerCase().startsWith('hi'));
     }
@@ -178,8 +178,7 @@ const AgentChat = () => {
   // ── Session flow ──────────────────────────────────────────────────────────────
 
   const initChat = async () => {
-    // Do NOT check for active sessions — always start fresh
-    const welcomeMsg = i18n.t('chat.welcome');
+    const welcomeMsg = i18n.t('chat.welcome', 'Ready to check your health? Please click "Start Check-in" to begin.');
     addMsg({
       role: 'cara',
       content: welcomeMsg,
@@ -221,6 +220,7 @@ const AgentChat = () => {
       addMsg({ role: 'cara', content: message });
       speak(message);
       setPhase('done');
+      setFaceAnalyzerEnabled(false);
     } else if (data.next_question) {
       displayQuestion(data.next_question as Question);
     } else {
@@ -277,9 +277,11 @@ const AgentChat = () => {
       addMsg({ role: 'cara', content: message });
       speak(message);
       setPhase('done');
+      setFaceAnalyzerEnabled(false);
     } catch {
       addMsg({ role: 'cara', content: "I've recorded your check-in. Your doctor will review your responses shortly." });
       setPhase('done');
+      setFaceAnalyzerEnabled(false);
     }
   };
 
@@ -298,7 +300,7 @@ const AgentChat = () => {
     recognitionRef.current = rec;
     rec.start();
     setIsListening(true);
-  }, []);
+  }, [currentLanguage]);
 
   const stopListening = useCallback(() => {
     recognitionRef.current?.stop();
@@ -308,6 +310,7 @@ const AgentChat = () => {
   const handleClose = () => {
     window.speechSynthesis.cancel();
     recognitionRef.current?.stop();
+    setFaceAnalyzerEnabled(false);
     setOpen(false);
   };
 
