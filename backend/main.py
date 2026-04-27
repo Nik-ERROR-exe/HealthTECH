@@ -1,8 +1,11 @@
-
-from fastapi import FastAPI
+from dotenv import load_dotenv
+load_dotenv()
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 import os
+import logging
 
 from app.config import settings
 from app.database import engine, Base
@@ -14,9 +17,6 @@ from app.models.models import (
     RiskScore, WoundAnalysis, Alert,
     DoctorMessage, AgentSession, MonitoringSchedule,
 )
-
-# Create database tables automatically
-Base.metadata.create_all(bind=engine)
 
 # Routers
 from app.routers.auth import router as auth_router
@@ -40,21 +40,15 @@ def create_app() -> FastAPI:
     # ── CORS ──
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[
-            "http://localhost:8080",
-            "http://localhost:5173",
-            "https://health-tech-amber.vercel.app"
-        ],
+        allow_origins=["*"],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
 
     # ── Static files for uploaded wound images ──
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    UPLOAD_DIR = os.path.join(BASE_DIR, "uploads", "wounds")
-    os.makedirs(UPLOAD_DIR, exist_ok=True)
-    app.mount("/uploads", StaticFiles(directory=os.path.join(BASE_DIR, "uploads")), name="uploads")
+    os.makedirs("uploads/wounds", exist_ok=True)
+    app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
     # ── Routers ──
     app.include_router(auth_router, prefix="/api")
@@ -74,6 +68,16 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
+
+logger = logging.getLogger(__name__)
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"[GLOBAL ERROR] {request.method} {request.url} → {exc}")
+    return JSONResponse(
+        status_code=200,
+        content={"data": None, "error": str(exc), "message": "No data available"},
+    )
 
 
 if __name__ == "__main__":

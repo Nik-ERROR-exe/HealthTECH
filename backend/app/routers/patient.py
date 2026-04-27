@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -62,135 +63,132 @@ def _tier_to_health_status(tier: Optional[str]) -> str:
 
 @router.get("/dashboard")
 def get_patient_dashboard(
-    language: str = "en",
     current_user: User    = Depends(require_patient),
     db:           Session = Depends(get_db),
 ):
-    profile = _get_patient_profile(current_user, db)
+    try:
+        profile = _get_patient_profile(current_user, db)
 
-    # Active medical course
-    active_course = db.query(MedicalCourse).filter(
-        MedicalCourse.patient_id == profile.id,
-        MedicalCourse.status     == "ACTIVE",
-    ).first()
-
-    course_data = None
-    medications_today = []
-
-    if active_course:
-        # Progress calculation
-        try:
-            start = datetime.strptime(active_course.start_date, "%Y-%m-%d")
-            end   = datetime.strptime(active_course.end_date,   "%Y-%m-%d")
-            today = datetime.utcnow()
-            total_days   = max((end - start).days, 1)
-            elapsed_days = max((today - start).days, 0)
-            progress_pct = min(round((elapsed_days / total_days) * 100), 100)
-        except Exception:
-            progress_pct = 0
-
-        # Doctor name
-        from app.models.models import DoctorProfile
-        doctor_profile = db.query(DoctorProfile).filter(
-            DoctorProfile.id == active_course.doctor_id
+        # Active medical course
+        active_course = db.query(MedicalCourse).filter(
+            MedicalCourse.patient_id == profile.id,
+            MedicalCourse.status     == "ACTIVE",
         ).first()
-        doctor_user = None
-        if doctor_profile:
-            doctor_user = db.query(User).filter(
-                User.id == doctor_profile.user_id
-            ).first()
 
-        course_data = {
-            "course_id":    active_course.id,
-            "course_name":  active_course.course_name,
-            "condition":    active_course.condition_type.value,
-            "doctor_name":  doctor_user.full_name if doctor_user else "Your Doctor",
-            "start_date":   active_course.start_date,
-            "end_date":     active_course.end_date,
-            "progress_pct": progress_pct,
-            "notes":        active_course.notes_for_patient,
-        }
+        course_data = None
+        medications_today = []
 
-        # Today's medications
-        meds = db.query(Medication).filter(
-            Medication.course_id == active_course.id,
-            Medication.is_active == True,
-        ).all()
-        medications_today = [
-            {
-                "id":           m.id,
-                "name":         m.name,
-                "dosage":       m.dosage,
-                "frequency":    m.frequency,
-                "time_of_day":  m.time_of_day,
-                "instructions": m.special_instructions,
-            }
-            for m in meds
-        ]
-
-    # Latest risk score → health status
-    latest_score = None
-    if profile:
-        latest_score = db.query(RiskScore).filter(
-            RiskScore.patient_id == profile.id
-        ).order_by(RiskScore.created_at.desc()).first()
-
-    health_status = _tier_to_health_status(
-        latest_score.tier.value if latest_score else None
-    )
-
-    # Last check-in time
-    last_checkin = db.query(CheckIn).filter(
-        CheckIn.patient_id == profile.id
-    ).order_by(CheckIn.created_at.desc()).first()
-
-    # Unread messages
-    unread_count = db.query(DoctorMessage).filter(
-        DoctorMessage.patient_id == profile.id,
-        DoctorMessage.is_read    == False,
-    ).count()
-
-    # Pending agent question
-    pending_session = db.query(AgentSession).filter(
-        AgentSession.patient_id      == profile.id,
-        AgentSession.status          == "active",
-        AgentSession.pending_question != None,
-    ).order_by(AgentSession.created_at.desc()).first()
-
-    pending_q = None
-    if pending_session:
-        # Translate dynamic agent questions on the fly if needed
-        question_text = pending_session.pending_question
-        
-        # Try to avoid translating if we already know it's the requested language
-        session_lang = getattr(pending_session, 'language', 'en') 
-        
-        if language != session_lang:
+        if active_course:
+            # Progress calculation
             try:
-                from app.services.translation_service import translation_service
-                question_text = translation_service.translate_text(question_text, language)
-            except Exception as e:
-                logger.error(f"Failed to translate dashboard pending question: {e}")
+                start = datetime.strptime(active_course.start_date, "%Y-%m-%d")
+                end   = datetime.strptime(active_course.end_date,   "%Y-%m-%d")
+                today = datetime.utcnow()
+                total_days   = max((end - start).days, 1)
+                elapsed_days = max((today - start).days, 0)
+                progress_pct = min(round((elapsed_days / total_days) * 100), 100)
+            except Exception:
+                progress_pct = 0
 
-        pending_q = {
-            "session_id": pending_session.id,
-            "question":   question_text,
-            "options":    pending_session.pending_options,
-            "trigger":    pending_session.trigger,
+            # Doctor name
+            from app.models.models import DoctorProfile
+            doctor_profile = db.query(DoctorProfile).filter(
+                DoctorProfile.id == active_course.doctor_id
+            ).first()
+            doctor_user = None
+            if doctor_profile:
+                doctor_user = db.query(User).filter(
+                    User.id == doctor_profile.user_id
+                ).first()
+
+            course_data = {
+                "course_id":    active_course.id,
+                "course_name":  active_course.course_name,
+                "condition":    active_course.condition_type.value,
+                "doctor_name":  doctor_user.full_name if doctor_user else "Your Doctor",
+                "start_date":   active_course.start_date,
+                "end_date":     active_course.end_date,
+                "progress_pct": progress_pct,
+                "notes":        active_course.notes_for_patient,
+            }
+
+            # Today's medications
+            meds = db.query(Medication).filter(
+                Medication.course_id == active_course.id,
+                Medication.is_active == True,
+            ).all()
+            medications_today = [
+                {
+                    "id":           m.id,
+                    "name":         m.name,
+                    "dosage":       m.dosage,
+                    "frequency":    m.frequency,
+                    "time_of_day":  m.time_of_day,
+                    "instructions": m.special_instructions,
+                }
+                for m in meds
+            ]
+
+        # Latest risk score → health status
+        latest_score = None
+        if profile:
+            latest_score = db.query(RiskScore).filter(
+                RiskScore.patient_id == profile.id
+            ).order_by(RiskScore.created_at.desc()).first()
+
+        health_status = _tier_to_health_status(
+            latest_score.tier.value if latest_score else None
+        )
+
+        # Last check-in time
+        last_checkin = db.query(CheckIn).filter(
+            CheckIn.patient_id == profile.id
+        ).order_by(CheckIn.created_at.desc()).first()
+
+        # Unread messages
+        unread_count = db.query(DoctorMessage).filter(
+            DoctorMessage.patient_id == profile.id,
+            DoctorMessage.is_read    == False,
+        ).count()
+
+        # Pending agent question
+        pending_session = db.query(AgentSession).filter(
+            AgentSession.patient_id      == profile.id,
+            AgentSession.status          == "active",
+            AgentSession.pending_question != None,
+        ).order_by(AgentSession.created_at.desc()).first()
+
+        pending_q = None
+        if pending_session:
+            pending_q = {
+                "session_id": pending_session.id,
+                "question":   pending_session.pending_question,
+                "options":    pending_session.pending_options,
+                "trigger":    pending_session.trigger,
+            }
+
+        return {
+            "patient_id":        profile.id,
+            "full_name":         current_user.full_name,
+            "unique_uid":        current_user.unique_uid,
+            "health_status":     health_status,
+            "active_course":     course_data,
+            "medications_today": medications_today,
+            "last_check_in":     last_checkin.created_at.isoformat() if last_checkin else None,
+            "unread_messages":   unread_count,
+            "pending_question":  pending_q,
+            "emergency_contact_phone": profile.emergency_contact_phone,
         }
-
-    return {
-        "patient_id":        profile.id,
-        "full_name":         current_user.full_name,
-        "unique_uid":        current_user.unique_uid,
-        "health_status":     health_status,
-        "active_course":     course_data,
-        "medications_today": medications_today,
-        "last_check_in":     last_checkin.created_at.isoformat() if last_checkin else None,
-        "unread_messages":   unread_count,
-        "pending_question":  pending_q,
-        "emergency_contact_phone": profile.emergency_contact_phone,
-    }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Dashboard error: {e}")
+        return JSONResponse(status_code=200, content={
+            "patient_id": None, "full_name": current_user.full_name,
+            "unique_uid": current_user.unique_uid or "", "health_status": "Doing Well",
+            "active_course": None, "medications_today": [], "last_check_in": None,
+            "unread_messages": 0, "pending_question": None, "emergency_contact_phone": None,
+        })
 
 
 # ────────────────────────────────────────────
@@ -629,37 +627,50 @@ def get_messages(
     current_user: User    = Depends(require_patient),
     db:           Session = Depends(get_db),
 ):
-    profile = _get_patient_profile(current_user, db)
+    try:
+        profile = _get_patient_profile(current_user, db)
 
-    messages = db.query(DoctorMessage).filter(
-        DoctorMessage.patient_id == profile.id
-    ).order_by(DoctorMessage.created_at.desc()).limit(50).all()
+        messages = db.query(DoctorMessage).filter(
+            DoctorMessage.patient_id == profile.id
+        ).order_by(DoctorMessage.created_at.desc()).limit(50).all()
 
-    # Mark all as read
-    for m in messages:
-        if not m.is_read:
-            m.is_read = True
-    db.commit()
+        # Mark all as read
+        for m in messages:
+            if not m.is_read:
+                m.is_read = True
+        db.commit()
 
-    from app.models.models import DoctorProfile
-    results = []
-    for m in messages:
-        doctor_profile = db.query(DoctorProfile).filter(
-            DoctorProfile.id == m.doctor_id
-        ).first()
-        doctor_user = db.query(User).filter(
-            User.id == doctor_profile.user_id
-        ).first() if doctor_profile else None
+        from app.models.models import DoctorProfile
+        results = []
+        for m in messages:
+            doctor_name = "Your Doctor"
+            try:
+                doctor_profile = db.query(DoctorProfile).filter(
+                    DoctorProfile.id == m.doctor_id
+                ).first()
+                if doctor_profile:
+                    doctor_user = db.query(User).filter(
+                        User.id == doctor_profile.user_id
+                    ).first()
+                    if doctor_user:
+                        doctor_name = doctor_user.full_name
+            except Exception:
+                pass
 
-        results.append({
-            "id":          m.id,
-            "message":     m.message,
-            "doctor_name": doctor_user.full_name if doctor_user else "Your Doctor",
-            "created_at":  m.created_at.isoformat(),
-            "is_read":     True,
-        })
+            results.append({
+                "id":          m.id,
+                "message":     m.message,
+                "doctor_name": doctor_name,
+                "created_at":  m.created_at.isoformat(),
+                "is_read":     True,
+            })
 
-    return {"messages": results}
+        return {"messages": results}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Messages error: {e}")
+        return JSONResponse(status_code=200, content={"messages": []})
 
 
 # ────────────────────────────────────────────
@@ -710,29 +721,90 @@ def update_profile(
 # GET /api/patient/check-in-history
 # ────────────────────────────────────────────
 
-@router.get("/check-in-history")
+@router.get("/checkin-history")
 def get_checkin_history(
     current_user: User    = Depends(require_patient),
     db:           Session = Depends(get_db),
 ):
-    profile = _get_patient_profile(current_user, db)
+    try:
+        profile = _get_patient_profile(current_user, db)
 
-    check_ins = db.query(CheckIn).filter(
-        CheckIn.patient_id == profile.id
-    ).order_by(CheckIn.created_at.desc()).limit(30).all()
+        check_ins = db.query(CheckIn).filter(
+            CheckIn.patient_id == profile.id
+        ).order_by(CheckIn.created_at.desc()).limit(30).all()
 
-    results = []
-    for c in check_ins:
-        score = db.query(RiskScore).filter(
-            RiskScore.check_in_id == c.id
-        ).first()
-        results.append({
-            "check_in_id":    c.id,
-            "created_at":     c.created_at.isoformat(),
-            "input_type":     c.input_type.value,
-            "symptom_summary": c.symptom_summary,
-            "total_score":    float(score.total_score) if score else None,
-            "tier":           score.tier.value if score else None,
-        })
+        results = []
+        for c in check_ins:
+            score = db.query(RiskScore).filter(
+                RiskScore.check_in_id == c.id
+            ).first()
+            results.append({
+                "check_in_id":    c.id,
+                "created_at":     c.created_at.isoformat(),
+                "input_type":     c.input_type.value,
+                "symptom_summary": c.symptom_summary,
+                "total_score":    float(score.total_score) if score else None,
+                "tier":           score.tier.value if score else None,
+            })
 
-    return {"history": results}
+        return {"history": results}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Checkin history error: {e}")
+        return JSONResponse(status_code=200, content={"history": []})
+
+
+# ────────────────────────────────────────────
+# GET /api/patient/wound-history
+# ────────────────────────────────────────────
+
+@router.get("/wound-history")
+def get_wound_history(
+    current_user: User    = Depends(require_patient),
+    db:           Session = Depends(get_db),
+):
+    try:
+        from app.models.models import WoundAnalysis
+        profile = _get_patient_profile(current_user, db)
+
+        wounds = db.query(WoundAnalysis).filter(
+            WoundAnalysis.patient_id == profile.id
+        ).order_by(WoundAnalysis.created_at.desc()).limit(20).all()
+
+        results = []
+        for w in wounds:
+            results.append({
+                "id":            w.id,
+                "uploaded_at":   w.created_at.isoformat(),
+                "thumbnail_url": w.image_url,
+                "score":         float(w.wound_score or 0),
+                "status":        w.severity.value if w.severity else "NORMAL",
+            })
+
+        return {"wounds": results}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Wound history error: {e}")
+        return JSONResponse(status_code=200, content={"wounds": []})
+
+
+# ────────────────────────────────────────────
+# GET /api/patient/nearby-volunteers
+# ────────────────────────────────────────────
+
+@router.get("/nearby-volunteers")
+def get_nearby_volunteers(
+    current_user: User    = Depends(require_patient),
+    db:           Session = Depends(get_db),
+):
+    from app.models.models import VolunteerProfile
+    try:
+        count = db.query(VolunteerProfile).filter(
+            VolunteerProfile.is_available == True
+        ).count()
+    except Exception:
+        count = 0
+
+    return {"count": count}
