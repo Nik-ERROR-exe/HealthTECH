@@ -108,7 +108,14 @@
     "phone": "फ़ोन",
     "phoneDesc": "(SMS अलर्ट के लिए)",
     "area": "क्षेत्र",
-    "areaDesc": "(वैकल्पिक)"
+    "areaDesc": "(वैकल्पिक)",
+    "passwordMismatch": "पासवर्ड मेल नहीं खाते",
+    "registerFailed": "पंजीकरण विफल रहा",
+    "roles": {
+      "patient": "मरीज़",
+      "doctor": "डॉक्टर",
+      "volunteer": "स्वयंसेवक"
+    }
   },
   "emergency": {
     "enableProtection": "सुरक्षा सक्षम करें",
@@ -127,7 +134,8 @@
     "back": "पीछे",
     "next": "अगला",
     "retry": "पुनः प्रयास करें",
-    "loadError": "डेटा लोड नहीं किया जा सका।"
+    "loadError": "डेटा लोड नहीं किया जा सका।",
+    "required": "यह फ़ील्ड आवश्यक है"
   },
   "doctorDashboard": {
     "title": "रोगी सिंहावलोकन",
@@ -168,7 +176,38 @@
     "normalTexture": "सामान्य बनावट",
     "sendMessage": "रोगी को संदेश भेजें",
     "typeMessage": "रोगी के लिए एक संदेश टाइप करें...",
-    "loadError": "डैशबोर्ड डेटा लोड नहीं किया जा सका।"
+    "loadError": "डैशबोर्ड डेटा लोड नहीं किया जा सका।",
+    "compliance": "अनुपालन",
+    "volunteersNearby": "पास के स्वयंसेवक",
+    "aiPopulationInsights": "एआई जनसंख्या अंतर्दृष्टि",
+    "aiInsightsDesc": "CARENETRA एआई द्वारा संचालित क्रॉस-पेशेंट विश्लेषण",
+    "avgRiskScore": "औसत जोखिम स्कोर",
+    "projectedEscalations": "अनुमानित वृद्धि",
+    "recommendation": "सिफारिश",
+    "increaseFollowUp": "उच्च जोखिम वाले रोगियों के लिए फॉलो-अप बढ़ाएं",
+    "assignedPatients": "आवंटित मरीज़",
+    "find": "खोजें",
+    "taken": "लिया",
+    "missed": "छूटा",
+    "noMedications": "कोई दवा निर्धारित नहीं।",
+    "medicationAdherenceToday": "आज का दवा अनुपालन",
+    "medicationAdherence": "दवा अनुपालन",
+    "noMedicationData": "कोई दवा डेटा उपलब्ध नहीं।",
+    "recoveryProgress": "रिकवरी प्रगति",
+    "aiClinicalInsight": "एआई नैदानिक अंतर्दृष्टि",
+    "insightCritical": "रोगी गंभीर संकेत दिखाता है। तत्काल चिकित्सा समीक्षा की सिफारिश की जाती है।",
+    "insightModerate": "मध्यम जोखिम का पता चला। उपचार योजना में समायोजन पर विचार करें।",
+    "insightStable": "रोगी अच्छी प्रगति कर रहा है। वर्तमान उपचार योजना जारी रखें।",
+    "predictedEscalation": "अनुमानित वृद्धि",
+    "recommendedAction": "अनुशंसित कार्रवाई",
+    "contactNow": "अभी रोगी से संपर्क करें",
+    "routineCheckin": "नियमित जांच",
+    "symptomSeverityTrend": "लक्षण गंभीरता रुझान",
+    "redness": "लालिमा",
+    "swelling": "सूजन",
+    "texture": "बनावट",
+    "selectPatient": "विवरण देखने के लिए एक रोगी चुनें",
+    "send": "भेजें"
   },
   "volunteerDashboard": {
     "title": "स्वयंसेवक डैशबोर्ड",

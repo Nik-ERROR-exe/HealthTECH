@@ -108,7 +108,14 @@
     "phone": "Phone",
     "phoneDesc": "(for SMS alerts)",
     "area": "Area",
-    "areaDesc": "(optional)"
+    "areaDesc": "(optional)",
+    "passwordMismatch": "Passwords do not match",
+    "registerFailed": "Registration failed",
+    "roles": {
+      "patient": "Patient",
+      "doctor": "Doctor",
+      "volunteer": "Volunteer"
+    }
   },
   "emergency": {
     "enableProtection": "Enable Protection",
@@ -127,7 +134,8 @@
     "back": "Back",
     "next": "Next",
     "retry": "Retry",
-    "loadError": "Could not load data."
+    "loadError": "Could not load data.",
+    "required": "This field is required"
   },
   "doctorDashboard": {
     "title": "Patient Overview",
@@ -168,7 +176,38 @@
     "normalTexture": "Normal Texture",
     "sendMessage": "Send Message to Patient",
     "typeMessage": "Type a message for the patient...",
-    "loadError": "Could not load dashboard data."
+    "loadError": "Could not load dashboard data.",
+    "compliance": "Compliance",
+    "volunteersNearby": "Volunteers Nearby",
+    "aiPopulationInsights": "AI Population Insights",
+    "aiInsightsDesc": "Cross-patient analysis powered by CARENETRA AI",
+    "avgRiskScore": "Avg Risk Score",
+    "projectedEscalations": "Projected Escalations",
+    "recommendation": "Recommendation",
+    "increaseFollowUp": "Increase follow-up for high-risk patients",
+    "assignedPatients": "Assigned Patients",
+    "find": "Find",
+    "taken": "Taken",
+    "missed": "Missed",
+    "noMedications": "No medications prescribed.",
+    "medicationAdherenceToday": "Medication Adherence Today",
+    "medicationAdherence": "Medication Adherence",
+    "noMedicationData": "No medication data available.",
+    "recoveryProgress": "Recovery Progress",
+    "aiClinicalInsight": "AI Clinical Insight",
+    "insightCritical": "Patient shows critical indicators. Immediate medical review is recommended. Monitor vital trends closely.",
+    "insightModerate": "Moderate risk detected. Consider adjusting treatment plan and increasing check-in frequency.",
+    "insightStable": "Patient is progressing well. Continue current treatment plan and maintain regular check-ins.",
+    "predictedEscalation": "Predicted Escalation",
+    "recommendedAction": "Recommended Action",
+    "contactNow": "Contact patient now",
+    "routineCheckin": "Routine check-in",
+    "symptomSeverityTrend": "Symptom Severity Trend",
+    "redness": "Redness",
+    "swelling": "Swelling",
+    "texture": "Texture",
+    "selectPatient": "Select a patient to view details",
+    "send": "Send"
   },
   "volunteerDashboard": {
     "title": "Volunteer Dashboard",

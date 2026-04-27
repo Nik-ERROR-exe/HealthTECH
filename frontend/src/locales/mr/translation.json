@@ -108,7 +108,14 @@
     "phone": "फोन",
     "phoneDesc": "(SMS अलर्टसाठी)",
     "area": "परिसर",
-    "areaDesc": "(वैकल्पिक)"
+    "areaDesc": "(वैकल्पिक)",
+    "passwordMismatch": "पासवर्ड जुळत नाहीत",
+    "registerFailed": "नोंदणी अयशस्वी",
+    "roles": {
+      "patient": "रुग्ण",
+      "doctor": "डॉक्टर",
+      "volunteer": "स्वयंसेवक"
+    }
   },
   "emergency": {
     "enableProtection": "सुरक्षा सक्षम करा",
@@ -129,7 +136,8 @@
     "retry": "पुन्हा प्रयत्न करा",
     "loadError": "डेटा लोड होऊ शकला नाही.",
     "yes": "हो",
-    "no": "नाही"
+    "no": "नाही",
+    "required": "हे फील्ड आवश्यक आहे"
   },
   "doctorDashboard": {
     "title": "रुग्ण विहंगावलोकन",
@@ -170,7 +178,38 @@
     "normalTexture": "सामान्य पोत",
     "sendMessage": "रुग्णाला संदेश पाठवा",
     "typeMessage": "रुग्णासाठी संदेश टाईप करा...",
-    "loadError": "डॅशबोर्ड डेटा लोड होऊ शकला नाही."
+    "loadError": "डॅशबोर्ड डेटा लोड होऊ शकला नाही.",
+    "compliance": "अनुपालन",
+    "volunteersNearby": "जवळचे स्वयंसेवक",
+    "aiPopulationInsights": "एआय जनसंख्या अंतर्दृष्टी",
+    "aiInsightsDesc": "CARENETRA एआय द्वारे संचालित क्रॉस-पेशंट विश्लेषण",
+    "avgRiskScore": "सरासरी जोखीम स्कोर",
+    "projectedEscalations": "अंदाजित वाढ",
+    "recommendation": "शिफारस",
+    "increaseFollowUp": "उच्च जोखीम असलेल्या रुग्णांसाठी फॉलो-अप वाढवा",
+    "assignedPatients": "नियुक्त रुग्ण",
+    "find": "शोधा",
+    "taken": "घेतले",
+    "missed": "चुकले",
+    "noMedications": "कोणतीही औषधे लिहून दिलेली नाहीत.",
+    "medicationAdherenceToday": "आजचे औषध अनुपालन",
+    "medicationAdherence": "औषध अनुपालन",
+    "noMedicationData": "कोणताही औषध डेटा उपलब्ध नाही.",
+    "recoveryProgress": "रिकव्हरी प्रगती",
+    "aiClinicalInsight": "एआय क्लिनिकल अंतर्दृष्टी",
+    "insightCritical": "रुग्ण गंभीर संकेत दाखवत आहे. तात्काळ वैद्यकीय पुनरावलोकन शिफारसीय आहे.",
+    "insightModerate": "मध्यम जोखीम आढळली. उपचार योजनेत समायोजन विचारात घ्या.",
+    "insightStable": "रुग्ण चांगली प्रगती करत आहे. सध्याची उपचार योजना सुरू ठेवा.",
+    "predictedEscalation": "अंदाजित वाढ",
+    "recommendedAction": "शिफारसीत कृती",
+    "contactNow": "आता रुग्णाशी संपर्क साधा",
+    "routineCheckin": "नियमित तपासणी",
+    "symptomSeverityTrend": "लक्षणे गंभीरता कल",
+    "redness": "लालसरपणा",
+    "swelling": "सूज",
+    "texture": "पोत",
+    "selectPatient": "तपशील पाहण्यासाठी रुग्ण निवडा",
+    "send": "पाठवा"
   },
   "volunteerDashboard": {
     "title": "स्वयंसेवक डॅशबोर्ड",
