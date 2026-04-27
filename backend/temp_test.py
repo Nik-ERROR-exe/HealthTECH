@@ -1,113 +1,51 @@
 """
-Test script — Simulates a full check‑in conversation.
-Automatically picks the first patient with an ACTIVE MedicalCourse.
+Test script for the fine‑tuned CARA medical model hosted on Hugging Face Spaces.
+No API key required — the Space is public.
 """
-import asyncio
-import sys
-import logging
-from sqlalchemy.orm import Session
+import requests
+import json
 
-sys.path.insert(0, ".")
+HF_SPACE_URL = "https://kinghawk-cara-medical-api.hf.space/v1/chat/completions"
 
-from app.database import SessionLocal
-from app.models.models import PatientProfile, MedicalCourse
-from app.nodes.caretaker_agent import start_conversation, process_answer
-from app.agents.graph import run_agent_pipeline
+def test_cara(prompt: str, max_tokens: int = 64, temperature: float = 0.7):
+    payload = {
+        "model": "cara-medical",
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+    }
 
-# Configure logging so we see all agent output
-logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
-
-ANSWERS = {
-    "general_feeling": "Not great",
-    "medication_adherence": "Didn't take any",
-    "medication_reason": "Forgot to take it",
-    "symptoms_today": "Feeling warm and tired",
-    "temperature": "High fever — above 101°F",
-    "chest_pain": "Some tightness or pressure",
-    "pain_radiation": "only at chest",
-    "breathing": "Breathing normally",
-    "wound_status": "Some redness or mild soreness",
-    "heartbeat": "No, heartbeat feels normal",
-    "weight_gain": "No noticeable change",
-    "wound_photo": "yes",
-}
-
-async def run_test():
-    db: Session = SessionLocal()
+    print(f"\n🧪 Testing prompt: {prompt}")
     try:
-        # Find a patient with an ACTIVE course
-        course = db.query(MedicalCourse).filter(
-            MedicalCourse.status == "ACTIVE"
-        ).first()
-
-        if not course:
-            print("❌ No active MedicalCourse found in database.")
-            print("   Please create a course for a patient via the doctor dashboard first.")
-            return
-
-        patient_profile = db.query(PatientProfile).filter(
-            PatientProfile.id == course.patient_id
-        ).first()
-
-        if not patient_profile:
-            print("❌ Patient not found for course.")
-            return
-
-        patient_id = str(patient_profile.id)
-        course_id  = str(course.id)
-
-        print(f"✅ Using patient {patient_id} with active course {course.course_name}\n")
-
-        # Start conversation
-        result = await start_conversation(patient_id, course_id, db)
-        greeting = result["greeting"]
-        first_q  = result["first_question"]
-        state    = result["state"]
-
-        print(f"GREETING: {greeting}")
-        print(f"FIRST Q:  {first_q['question']}")
-
-        question_id = first_q["id"]
-        while True:
-            answer_text = ANSWERS.get(question_id, "no")
-            print(f"ANSWER:   {answer_text}")
-
-            res = await process_answer(state, question_id, answer_text)
-            state = res["state"]
-            if res["should_submit"]:
-                break
-            next_q = res["next_question"]
-            question_id = next_q["id"]
-            print(f"NEXT Q:   {next_q['question']}")
-
-        print("\n--- Conversation complete. Running agent pipeline ---\n")
-
-        answers = state["answers"]
-        raw_input = "\n".join([f"{a['question_id']}: {a['answer']}" for a in answers])
-
-        final_state = await run_agent_pipeline(
-            patient_id=patient_id,
-            check_in_id="test-checkin-123",
-            raw_input=raw_input,
-            input_type="AGENT",
-            course_id=course_id,
-            has_wound_image=False,
-            wound_image_path=None,
-        )
-
-        print("\n=== FINAL RESULT ===")
-        print(f"Tier:        {final_state.get('tier')}")
-        print(f"Total Score: {final_state.get('total_score')}")
-        print(f"Confidence:  {final_state.get('ml_confidence')}")
-        print(f"Explanation: {final_state.get('ml_explanation')}")
-        print("Suggestions:")
-        for s in final_state.get('ml_suggestions', []):
-            print(f"  - {s}")
-        if final_state.get("errors"):
-            print("Errors:", final_state["errors"])
-
-    finally:
-        db.close()
+        response = requests.post(HF_SPACE_URL, json=payload, timeout=60)
+        response.raise_for_status()
+        result = response.json()
+        content = result["choices"][0]["message"]["content"]
+        print(f"✅ Response: {content}")
+        return content
+    except requests.exceptions.Timeout:
+        print("❌ Request timed out (model may be sleeping — retry in a few seconds).")
+    except requests.exceptions.HTTPError as e:
+        print(f"❌ HTTP error: {e}")
+        print(f"   Response: {e.response.text}")
+    except Exception as e:
+        print(f"❌ Unexpected error: {e}")
 
 if __name__ == "__main__":
-    asyncio.run(run_test())
+    # Test 1: Greeting
+    test_cara(
+        "You are CARA, a caring nurse. Generate a warm, short greeting for patient John on day 5 of cardiac recovery.",
+        max_tokens=40
+    )
+
+    # Test 2: Clinical question
+    test_cara(
+        "You are CARA, a caring nurse. Patient John is on day 5 of cardiac recovery. He just reported feeling tired. Ask him a relevant follow‑up question about his energy or medication.",
+        max_tokens=64
+    )
+
+    # Test 3: Empathetic acknowledgment
+    test_cara(
+        "You are CARA. Patient John says he missed his medication. Give a short empathetic acknowledgment and ask if he needs help remembering.",
+        max_tokens=50
+    )

@@ -2,7 +2,6 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AlertTriangle, MapPin, CheckCircle, Loader2, Shield, ShieldOff } from 'lucide-react';
 import { toast } from 'sonner';
-import { useTranslation } from 'react-i18next';
 import api from '@/lib/api';
 
 // Tuning constants
@@ -19,7 +18,6 @@ interface Props {
 type ModalPhase = 'countdown' | 'locating' | 'alerting' | 'done';
 
 const ImpactDetector = ({ patientName, patientPhone, userId }: Props) => {
-  const { t } = useTranslation();
   const [showModal, setShowModal]       = useState(false);
   const [modalPhase, setModalPhase]     = useState<ModalPhase>('countdown');
   const [countdown, setCountdown]       = useState(COUNTDOWN_SECONDS);
