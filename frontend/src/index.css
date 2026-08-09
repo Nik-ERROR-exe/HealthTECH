@@ -79,11 +79,12 @@
   * {
     @apply border-border;
   }
+  html {
+    @apply bg-background text-foreground;
+    scroll-behavior: auto;
+  }
   body {
     @apply bg-background text-foreground font-sans antialiased;
-  }
-  html {
-    scroll-behavior: auto;
   }
   html.lenis, html.lenis body {
     height: auto;
@@ -147,3 +148,45 @@ canvas {
     min-width: 44px;
   }
 }
+
+/* View Transitions API for Theme Toggle */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+::view-transition-old(root) {
+  z-index: 1;
+}
+
+::view-transition-new(root) {
+  z-index: 9999;
+  animation: circular-reveal 500ms ease-in-out;
+}
+
+@keyframes circular-reveal {
+  0% {
+    clip-path: circle(0px at var(--theme-x, 50%) var(--theme-y, 50%));
+  }
+  100% {
+    clip-path: circle(var(--theme-r, 1000px) at var(--theme-x, 50%) var(--theme-y, 50%));
+  }
+}
+
+/* GSAP SplitText Styles */
+.split-parent {
+  overflow: hidden;
+  display: inline-block;
+  white-space: normal;
+  word-wrap: break-word;
+  will-change: transform, opacity;
+}
+
+.split-line,
+.split-word,
+.split-char {
+  display: inline-block;
+  will-change: transform, opacity;
+}
+

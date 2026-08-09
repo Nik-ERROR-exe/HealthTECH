@@ -108,3 +108,5 @@ dist-ssr
 /START-HERE.md
 /engineering/
 /pitch/
+
+.claude/

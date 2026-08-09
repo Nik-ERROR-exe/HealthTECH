@@ -420,14 +420,14 @@ const LandingPage = () => {
     return () => {};
   }, []);
 
-  // Dynamic logo based on theme
+  // Dynamic logo based on theme (Light: /CareNetra_white.png, Dark: /CareNetra_black.png)
   const footerLogoSrc = isDark ? '/CareNetra_black.png' : '/CareNetra_white.png';
 
   return (
     <div ref={containerRef} className="min-h-screen bg-background text-foreground">
       <Navbar />
 
-      {/* === HERO SECTION – identical to past branch === */}
+      {/* === HERO SECTION === */}
       <section className="relative min-h-screen flex items-center overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-secondary/5 pointer-events-none" />
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_40%,rgba(56,189,248,0.05)_0%,transparent_50%)]" />
@@ -455,12 +455,12 @@ const LandingPage = () => {
                   text={t('landing.healthcare_that', 'Healthcare that')}
                   tag="span"
                   className="inline-block"
-                  delay={80}
-                  duration={0.8}
-                  from={{ opacity: 0, y: 60 }}
+                  delay={50}
+                  duration={1.25}
+                  from={{ opacity: 0, y: 40 }}
                   to={{ opacity: 1, y: 0 }}
-                  threshold={0.2}
-                  rootMargin="-50px"
+                  threshold={0.1}
+                  rootMargin="0px"
                   textAlign="left"
                 />{' '}
                 <span className="relative inline-block">
@@ -472,12 +472,12 @@ const LandingPage = () => {
                   text={t('landing.your_patients', 'your patients')}
                   tag="span"
                   className="inline-block"
-                  delay={80}
-                  duration={0.8}
-                  from={{ opacity: 0, y: 60 }}
+                  delay={50}
+                  duration={1.25}
+                  from={{ opacity: 0, y: 40 }}
                   to={{ opacity: 1, y: 0 }}
-                  threshold={0.2}
-                  rootMargin="-50px"
+                  threshold={0.1}
+                  rootMargin="0px"
                   textAlign="left"
                 />
               </h1>
