@@ -208,6 +208,7 @@ def get_patient_detail(
             "symptom_summary": c.symptom_summary,
             "total_score":     float(score.total_score) if score else None,
             "tier":            score.tier.value if score else None,
+            "agent_report":    c.agent_report,
         })
 
     # Risk score history (30 days for graph)

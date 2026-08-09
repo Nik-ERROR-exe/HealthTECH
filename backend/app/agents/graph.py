@@ -9,6 +9,7 @@ Flow:
     → [vision_agent if has_wound_image else skip]
     → risk_agent
     → escalation_agent
+    → report_agent
     → monitoring_agent
     → END
 """
@@ -20,6 +21,7 @@ from app.nodes.symptom_agent import symptom_agent_node
 from app.nodes.vision_agent import vision_agent_node
 from app.nodes.risk_agent import risk_agent_node
 from app.nodes.escalation_agent import escalation_agent_node
+from app.nodes.report_agent import report_agent_node
 from app.nodes.monitoring_agent import monitoring_agent_node
 
 logger = logging.getLogger(__name__)
@@ -48,6 +50,7 @@ def build_graph() -> StateGraph:
     graph.add_node("vision_agent",     vision_agent_node)
     graph.add_node("risk_agent",       risk_agent_node)
     graph.add_node("escalation_agent", escalation_agent_node)
+    graph.add_node("report_agent",     report_agent_node)
     graph.add_node("monitoring_agent", monitoring_agent_node)
 
     # Entry point
@@ -68,7 +71,8 @@ def build_graph() -> StateGraph:
 
     # Linear from here
     graph.add_edge("risk_agent",       "escalation_agent")
-    graph.add_edge("escalation_agent", "monitoring_agent")
+    graph.add_edge("escalation_agent", "report_agent")
+    graph.add_edge("report_agent",     "monitoring_agent")
     graph.add_edge("monitoring_agent", END)
 
     return graph
@@ -121,6 +125,7 @@ async def run_agent_pipeline(
         "swelling_detected":        None,
         "texture_change_detected":  None,
         "wound_analysis_summary":   None,
+        "wound_ai_advice":          None,
         "fever_raw_score":          None,
         "fatigue_raw_score":        None,
         "medication_raw_score":     None,
@@ -133,6 +138,7 @@ async def run_agent_pipeline(
         "alert_message":            None,
         "new_interval_hours":       None,
         "interval_reason":          None,
+        "agent_report":             None,
         "errors":                   [],
     }
 

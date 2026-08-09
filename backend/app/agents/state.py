@@ -55,5 +55,8 @@ class AgentState(TypedDict):
     new_interval_hours:   Optional[int]
     interval_reason:      Optional[str]
 
+    # ── Report Agent output ───────────────────────────────────────
+    agent_report:         Optional[str]   # RAG-grounded narrative for the doctor
+
     # ── Error tracking (non-fatal, graph continues) ───────────────
     errors: list[str]
