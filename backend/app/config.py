@@ -21,6 +21,29 @@ class Settings(BaseSettings):
     NVIDIA_API_KEY: str = ""
     NVIDIA_BASE_URL: str = "https://integrate.api.nvidia.com/v1"
 
+    # ── Text LLM (NVIDIA NIM free tier; OpenAI-compatible) ──────────
+    LLM_MODEL: str = "meta/llama-3.1-8b-instruct"
+    LLM_TEMPERATURE: float = 0.2
+    LLM_MAX_TOKENS: int = 512
+
+    # ── Embeddings (NVIDIA NIM /v1/embeddings) ──────────────────────
+    EMBEDDING_MODEL: str = "nvidia/nv-embed-qa-4"
+    EMBEDDING_DIM: int = 1024
+    EMBEDDING_BATCH: int = 16
+
+    # ── Hugging Face (free inference API for wound image analysis) ──
+    HUGGINGFACE_API_KEY: str = ""
+
+    # ── Qdrant (local mode — free, no server required) ──────────────
+    QDRANT_PATH: str = "data/qdrant"
+    QDRANT_COLLECTION: str = "carenetra_knowledge"
+
+    # ── Knowledge base / RAG ────────────────────────────────────────
+    KNOWLEDGE_DIR: str = "knowledge"
+    CHUNK_SIZE: int = 500
+    CHUNK_OVERLAP: int = 50
+    RAG_TOP_K: int = 5
+
     BREVO_API_KEY: str = ""
     SENDER_EMAIL: str = "alerts@carenetra.ai"
     SENDER_NAME: str = "CARENETRA"
