@@ -106,13 +106,6 @@ dist-ssr
 *.sw?
 
 # =========================
-# CLAUDE CODE AGENT FILES (agent-only, not part of the project)
-# Folder-routing-system markdown used by the coding agent; no one else.
+# CLAUDE CODE — local session state only (context .md files are tracked)
 # =========================
-/CLAUDE.md
-/CONTEXT.md
-/START-HERE.md
-/engineering/
-/pitch/
-
 .claude/
