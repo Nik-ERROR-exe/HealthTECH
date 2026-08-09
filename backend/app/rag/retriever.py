@@ -99,21 +99,29 @@ async def retrieve(query: str, top_k: int = settings.RAG_TOP_K) -> list[dict]:
         return keyword_retrieve(query, top_k=top_k)
 
 
-async def retrieve_for_checkin(answers: dict, top_k: int = 3) -> list[str]:
+async def retrieve_for_checkin(answers, top_k: int = 3) -> list[str]:
     """
     Turn a check-in's answers into a retrieval query and return chunk texts.
 
-    `answers` is the conversation state's answers dict:
-      {question_id: {"question": str, "answer": str}}
+    `answers` is the conversation state's answers — either a list of
+    {question_id, answer} dicts (caretaker_agent format) or a dict of
+    {question_id: {"question", "answer"}}.
     """
-    if not answers:
-        return []
     parts = []
-    for qid, entry in answers.items():
-        if isinstance(entry, dict):
-            parts.append(f"{entry.get('question', qid)} {entry.get('answer', '')}".strip())
-        elif isinstance(entry, str):
-            parts.append(f"{qid} {entry}".strip())
+    if isinstance(answers, dict):
+        for qid, entry in answers.items():
+            if isinstance(entry, dict):
+                parts.append(f"{entry.get('question', qid)} {entry.get('answer', '')}".strip())
+            elif isinstance(entry, str):
+                parts.append(f"{qid} {entry}".strip())
+    else:
+        for item in (answers or []):
+            if isinstance(item, dict):
+                qid = item.get("question_id", "")
+                ans = item.get("answer", "")
+                parts.append(f"{qid} {ans}".strip())
+    if not parts:
+        return []
     query = "patient check-in report: " + " ; ".join(parts)
     results = await retrieve(query, top_k=top_k)
     return [r["text"] for r in results]

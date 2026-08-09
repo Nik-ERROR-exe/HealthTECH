@@ -1,13 +1,18 @@
 """
 CARENETRA — Caretaker Conversation Agent
-Pure Python state machine. Zero LLM calls. Fully offline.
+Pure Python state machine backed by question_bank.py, plus optional LLM
+adaptive follow-ups that are grounded in the patient's condition and history.
 
-Uses question_bank.py for all question text, options, and branching rules.
+Uses question_bank.py for the base question text, options, and branching rules.
 Personalization via f-string substitution (patient name, meds, day number).
+When `db`/`patient_id` are provided, up to MAX_ADAPTIVE_FOLLOWUPS adaptive
+LLM follow-up questions may be inserted; any failure falls back to the bank
+(so the fully-offline path remains reachable).
 
-Public API (called by conversation.py — signatures unchanged):
+Public API (called by conversation.py):
   start_conversation(patient_id, course_id, db) → {greeting, first_question, state}
-  process_answer(state, question_id, answer)     → {next_question, state, should_submit}
+  process_answer(state, question_id, answer, db=None, patient_id=None)
+                                                → {next_question, state, should_submit}
 """
 import logging
 from datetime import datetime, timezone
@@ -211,10 +216,15 @@ async def process_answer(
     state:       Dict[str, Any],
     question_id: str,
     answer:      str,
+    db:          Optional[Session] = None,
+    patient_id:  Optional[str]     = None,
 ) -> Dict[str, Any]:
     """
     Records the answer, applies branching rules, and returns the next question.
     If queue is empty → should_submit = True.
+
+    When `db` and `patient_id` are provided, an LLM adaptive follow-up may be
+    inserted before the next static question (capped by MAX_ADAPTIVE_FOLLOWUPS).
 
     Returns:
       next_question  — dict or None
@@ -264,6 +274,23 @@ async def process_answer(
         return await process_answer(state, next_id, "skipped")
 
     logger.info(f"[CaretakerAgent] Next question: {next_id} (queue remaining: {len(remaining)})")
+
+    # ── Adaptive LLM follow-up (capped) — inserted BEFORE the static question ──
+    adaptive_count = state.get("adaptive_count", 0)
+    if db is not None and patient_id is not None and adaptive_count < MAX_ADAPTIVE_FOLLOWUPS:
+        adaptive = None
+        try:
+            from app.nodes.adaptive_questions import MAX_ADAPTIVE_FOLLOWUPS, maybe_adaptive_followup
+            adaptive = await maybe_adaptive_followup(state, db, str(patient_id))
+        except Exception as exc:
+            logger.warning(f"[CaretakerAgent] Adaptive follow-up failed: {exc}")
+        if adaptive:
+            adaptive_count += 1
+            state["adaptive_count"] = adaptive_count
+            # Keep the static question queued so it is asked right after.
+            state["question_queue"] = [next_id] + remaining
+            next_q = adaptive
+            logger.info(f"[CaretakerAgent] Adaptive follow-up #{adaptive_count} inserted")
 
     return {
         "next_question": next_q,

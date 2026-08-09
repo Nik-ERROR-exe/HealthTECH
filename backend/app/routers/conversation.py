@@ -21,6 +21,7 @@ from app.models.models import (
     CheckIn, Medication, InputType,
 )
 from app.nodes.caretaker_agent import start_conversation, process_answer
+from app.nodes.adaptive_questions import answer_from_knowledge
 from app.agents.graph import run_agent_pipeline
 from app.services.translation_service import translation_service
 
@@ -80,6 +81,11 @@ TIER_MESSAGES = {
 class AnswerRequest(BaseModel):
     question_id: str
     answer: str
+    language: str = "en"  # Language code (en, hi, mr)
+
+
+class AskRequest(BaseModel):
+    question: str
     language: str = "en"  # Language code (en, hi, mr)
 
 
@@ -361,7 +367,10 @@ async def submit_answer(
     if session_language != "en":
         answer_text = translation_service.translate_text(req.answer, "en")
 
-    result = await process_answer(state, req.question_id, answer_text)
+    result = await process_answer(
+        state, req.question_id, answer_text,
+        db=db, patient_id=str(current_patient.id),
+    )
 
     # Update state in session
     updated_conversation = _update_state_in_conversation(conversation, result["state"])
@@ -487,3 +496,18 @@ async def submit_conversation(
         session, current_patient, course_id, db
     )
     return pipeline_result
+
+
+# ── POST /patient/conversation/ask (RAG Q&A over the medical knowledge base) ──
+
+@router.post("/ask")
+async def ask_caretaker(
+    req: AskRequest,
+    current_patient: PatientProfile = Depends(get_current_patient),
+):
+    """
+    Answers a patient's question using the RAG medical knowledge base
+    (Qdrant + NVIDIA embeddings/LLM), returning {answer, sources}.
+    """
+    result = await answer_from_knowledge(req.question, req.language)
+    return result
