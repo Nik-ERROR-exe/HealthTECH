@@ -98,3 +98,13 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# =========================
+# CLAUDE CODE AGENT FILES (agent-only, not part of the project)
+# Folder-routing-system markdown used by the coding agent; no one else.
+# =========================
+/CLAUDE.md
+/CONTEXT.md
+/START-HERE.md
+/engineering/
+/pitch/

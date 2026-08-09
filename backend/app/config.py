@@ -3,11 +3,16 @@ from functools import lru_cache
 
 
 class Settings(BaseSettings):
-    DB_USER: str
-    DB_PASSWORD: str
-    DB_HOST: str
+    # Full connection URL from .env (e.g. Neon/Render: "postgresql://user:pass@host/db?sslmode=require").
+    # Preferred source — takes precedence over the legacy DB_* fields below.
+    DATABASE_URL: str = ""
+
+    # Legacy individual fields — used ONLY when DATABASE_URL is empty.
+    DB_USER: str = ""
+    DB_PASSWORD: str = ""
+    DB_HOST: str = ""
     DB_PORT: str = "5432"
-    DB_NAME: str
+    DB_NAME: str = ""
 
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
@@ -28,7 +33,9 @@ class Settings(BaseSettings):
     DEBUG: bool = True
 
     @property
-    def DATABASE_URL(self) -> str:
+    def database_url(self) -> str:
+        if self.DATABASE_URL:
+            return self.DATABASE_URL
         return (
             f"postgresql://{self.DB_USER}:{self.DB_PASSWORD}"
             f"@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
