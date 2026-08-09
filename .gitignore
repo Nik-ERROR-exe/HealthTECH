@@ -68,6 +68,11 @@ Thumbs.db
 .cache/
 
 # =========================
+# RAG / LOCAL VECTOR DATA (Qdrant local mode)
+# =========================
+backend/data/
+
+# =========================
 # MISC
 # =========================
 *.swp

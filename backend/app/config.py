@@ -27,8 +27,8 @@ class Settings(BaseSettings):
     LLM_MAX_TOKENS: int = 512
 
     # ── Embeddings (NVIDIA NIM /v1/embeddings) ──────────────────────
-    EMBEDDING_MODEL: str = "nvidia/nv-embed-qa-4"
-    EMBEDDING_DIM: int = 1024
+    EMBEDDING_MODEL: str = "nvidia/nv-embed-v1"
+    EMBEDDING_DIM: int = 4096
     EMBEDDING_BATCH: int = 16
 
     # ── Hugging Face (free inference API for wound image analysis) ──
