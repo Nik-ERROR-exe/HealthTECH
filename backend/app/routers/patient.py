@@ -598,9 +598,27 @@ async def submit_agent_response(
         MedicalCourse.status     == "ACTIVE",
     ).first()
 
+    # Ensure a real CheckIn row exists before the pipeline runs — risk_scores
+    # references check_ins.id via a NOT NULL UNIQUE FK, so we can never pass an
+    # agent_sessions.id as check_in_id (scheduler/agent sessions have no CheckIn).
+    check_in_id = session.check_in_id
+    if not check_in_id:
+        check_in = CheckIn(
+            patient_id = profile.id,
+            course_id  = active_course.id if active_course else None,
+            input_type = InputType.AGENT,
+            raw_input  = payload.response,
+        )
+        db.add(check_in)
+        db.commit()
+        db.refresh(check_in)
+        check_in_id = check_in.id
+        session.check_in_id = check_in_id
+        db.commit()
+
     final_state = await run_agent_pipeline(
         patient_id  = profile.id,
-        check_in_id = session.check_in_id or session.id,
+        check_in_id = check_in_id,
         raw_input   = payload.response,
         input_type  = "AGENT",
         course_id   = active_course.id if active_course else None,
