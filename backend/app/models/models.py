@@ -198,6 +198,7 @@ class DoctorProfile(Base):
     )
     specialization: Mapped[str] = mapped_column(String(255), nullable=True)
     hospital_name: Mapped[str] = mapped_column(String(255), nullable=True)
+    phone: Mapped[str] = mapped_column(String(30), nullable=True)
     medical_license_number: Mapped[str] = mapped_column(String(100), nullable=True)
     profile_picture_url: Mapped[str] = mapped_column(String(500), nullable=True)
     notify_email_high_risk: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -399,6 +400,7 @@ class CheckIn(Base):
     medication_taken: Mapped[bool] = mapped_column(Boolean, nullable=True)
     medication_time_reported: Mapped[str] = mapped_column(String(100), nullable=True)
     symptom_summary: Mapped[str] = mapped_column(Text, nullable=True)    # LLM-generated summary
+    agent_report: Mapped[str] = mapped_column(Text, nullable=True)       # RAG-grounded AI report for the doctor
 
     # Agent-parsed structured data (any extra key-value pairs)
     extra_data: Mapped[dict] = mapped_column(JSON, nullable=True, default=dict)
@@ -486,6 +488,7 @@ class WoundAnalysis(Base):
     swelling_detected: Mapped[bool] = mapped_column(Boolean, default=False)
     texture_change_detected: Mapped[bool] = mapped_column(Boolean, default=False)
     analysis_summary: Mapped[str] = mapped_column(Text, nullable=True)
+    ai_advice: Mapped[str] = mapped_column(Text, nullable=True)    # LLM-generated patient advice/tips
 
     # Score sent to Risk Assessment Agent (0-10)
     wound_score: Mapped[float] = mapped_column(Float, default=0.0)

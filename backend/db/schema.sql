@@ -100,6 +100,7 @@ CREATE TABLE doctor_profiles (
     user_id                UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
     specialization         VARCHAR(255),
     hospital_name          VARCHAR(255),
+    phone                  VARCHAR(30),
     medical_license_number VARCHAR(100),
     profile_picture_url    VARCHAR(500),
     notify_email_high_risk BOOLEAN NOT NULL DEFAULT TRUE,
@@ -202,6 +203,7 @@ CREATE TABLE check_ins (
     medication_taken         BOOLEAN,
     medication_time_reported VARCHAR(100),
     symptom_summary          TEXT,                -- LLM-generated summary
+    agent_report             TEXT,                -- RAG-grounded AI report for the doctor
     extra_data               JSON,                -- agent-parsed key-value pairs
     created_at               TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -240,6 +242,7 @@ CREATE TABLE wound_analyses (
     swelling_detected       BOOLEAN NOT NULL DEFAULT FALSE,
     texture_change_detected BOOLEAN NOT NULL DEFAULT FALSE,
     analysis_summary        TEXT,
+    ai_advice                TEXT,                    -- LLM-generated patient advice/tips
     wound_score             DOUBLE PRECISION NOT NULL DEFAULT 0.0,  -- 0-10
     created_at              TIMESTAMPTZ NOT NULL DEFAULT now()
 );
