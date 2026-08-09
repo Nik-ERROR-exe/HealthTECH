@@ -172,7 +172,7 @@ const AgentChat = () => {
       isLatest:     true,
     });
     speak(q.question);
-    setPhase(q.type === 'photo_prompt' ? 'photo' : 'chatting');
+    setPhase((q.type === 'photo' || q.type === 'photo_prompt') ? 'photo' : 'chatting');
   }, [addMsg, speak]);
 
   // ── Session flow ──────────────────────────────────────────────────────────────
@@ -471,7 +471,7 @@ const AgentChat = () => {
                           ))}
                         </div>
                       )}
-                      {latestCaraMsg.questionType === 'photo_prompt' && latestCaraMsg.isLatest && phase === 'photo' && (
+                      {(latestCaraMsg.questionType === 'photo' || latestCaraMsg.questionType === 'photo_prompt') && latestCaraMsg.isLatest && phase === 'photo' && (
                         <motion.button
                           initial={{ opacity: 0, scale: 0.9 }}
                           animate={{ opacity: 1, scale: 1 }}

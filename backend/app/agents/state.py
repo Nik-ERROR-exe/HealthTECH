@@ -35,6 +35,7 @@ class AgentState(TypedDict):
     swelling_detected:        Optional[bool]
     texture_change_detected:  Optional[bool]
     wound_analysis_summary:   Optional[str]
+    wound_ai_advice:          Optional[str]   # patient-facing advice/tips
 
     # ── Risk Assessment Agent output ──────────────────────────────
     fever_raw_score:      Optional[float]  # 0–10

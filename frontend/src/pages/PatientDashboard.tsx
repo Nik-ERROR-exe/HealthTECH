@@ -99,6 +99,7 @@ interface WoundImage {
   thumbnail_url?: string;
   score: number;
   status: string;
+  ai_advice?: string;
 }
 
 // ===== Helper: Risk config =====
@@ -220,7 +221,7 @@ const PatientDashboard = () => {
       toast.info('Analyzing wound photo...');
       const res = await conversationApi.dashboardUploadWound(file);
       if (res.data.status === 'success' || res.data.check_in_id) {
-        toast.success(res.data.friendly_message || 'Wound analysis complete!');
+        toast.success(res.data.ai_advice || res.data.friendly_message || 'Wound analysis complete!');
         fetchDashboard();
         fetchWoundHistory();
       } else {
@@ -604,6 +605,7 @@ const PatientDashboard = () => {
                     <div className="flex-1">
                       <p className="text-sm font-medium">Severity: {w.score}/10 – {w.status}</p>
                       <p className="text-xs text-muted-foreground">{new Date(w.uploaded_at).toLocaleString()}</p>
+                      {w.ai_advice && <p className="text-xs mt-1 text-muted-foreground/90 line-clamp-2">{w.ai_advice}</p>}
                     </div>
                   </div>
                 ))}

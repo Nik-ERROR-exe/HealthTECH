@@ -24,6 +24,7 @@ class CheckInResponse(BaseModel):
     symptom_summary:   Optional[str]
     new_interval_hours: Optional[int]
     errors:            List[str]
+    ai_advice:         Optional[str] = None
 
 
 class PatientDashboardResponse(BaseModel):
@@ -46,6 +47,7 @@ class WoundUploadResponse(BaseModel):
     wound_score:       float
     total_score:       Optional[float]
     tier:              Optional[str]
+    ai_advice:         Optional[str] = None
 
 
 class PendingAgentMessage(BaseModel):

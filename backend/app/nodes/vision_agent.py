@@ -5,7 +5,6 @@ If API fails, falls back to classical OpenCV heuristics.
 
 Maintains full compatibility with existing AgentState and database schema.
 """
-import os
 import logging
 import requests
 import cv2
@@ -14,13 +13,15 @@ from pathlib import Path
 from sqlalchemy.orm import Session
 
 from app.agents.state import AgentState
+from app.agents.nvidia_client import LLM_MODEL, llm_client
+from app.config import settings
 from app.database import SessionLocal
-from app.models.models import WoundAnalysis, WoundSeverity
+from app.models.models import WoundAnalysis, WoundSeverity, MedicalCourse
 
 logger = logging.getLogger(__name__)
 
-# Hugging Face configuration
-HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY")
+# Hugging Face configuration (free tier — paste key into backend/.env)
+HUGGINGFACE_API_KEY = settings.HUGGINGFACE_API_KEY
 MODEL_ID = "davidfred/vit_skin_disease_model" # Good for wound classification
 API_URL = f"https://api-inference.huggingface.co/models/{MODEL_ID}"
 HEADERS = {"Authorization": f"Bearer {HUGGINGFACE_API_KEY}"}
@@ -156,6 +157,82 @@ def analyze_with_opencv(image_path: str) -> dict:
 # ─────────────────────────────────────────────────────────────
 # Main agent node (same interface as before)
 # ─────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────
+# Patient-facing AI advice (NVIDIA LLM + RAG guideline, static fallback)
+# ─────────────────────────────────────────────
+_ADVICE_SYSTEM_PROMPT = (
+    "You are CARA, a supportive clinical assistant. Based on the wound analysis "
+    "findings and the patient's medical context, give 2-4 short, practical care "
+    "tips and the specific signs to watch for. Do NOT alarm the patient. "
+    "Keep it under 120 words, warm and clear."
+)
+
+
+def _static_advice(severity: str, score: float) -> str:
+    """Safe static tips used when the LLM is unreachable."""
+    if severity == "SEVERE" or (score or 0) >= 7:
+        return (
+            "Your wound analysis shows signs that need attention. Please contact "
+            "your doctor promptly, keep the area clean and dry, and avoid any "
+            "irritation."
+        )
+    if severity in ("MODERATE", "MILD") or (score or 0) >= 4:
+        return (
+            "Your wound needs a little attention. Keep it clean and dry, follow "
+            "your dressing schedule, and let your doctor know if redness spreads "
+            "or pain increases."
+        )
+    return (
+        "Your wound looks stable. Keep it clean and dry, follow your dressing "
+        "schedule, and contact your doctor if anything changes."
+    )
+
+
+async def generate_ai_advice(
+    result: dict,
+    patient_context: str = "",
+    language: str = "en",
+) -> str:
+    """
+    LLM-written patient-facing advice grounded in the wound analysis, the
+    patient's condition, and the RAG care guidelines. Falls back to `_static_advice`.
+    """
+    context_parts = [
+        f"Wound analysis: {result.get('summary', '')}",
+        f"Severity: {result.get('status', 'NORMAL')} (score {result.get('score', 0)}/10)",
+    ]
+    if patient_context:
+        context_parts.append(f"Patient context: {patient_context[:300]}")
+    context = "\n".join(context_parts)
+
+    doc_excerpt = ""
+    try:
+        from app.rag.retriever import retrieve
+        hits = await retrieve(f"{result.get('summary', '')} wound care advice", top_k=1)
+        if hits:
+            doc_excerpt = hits[0]["text"]
+    except Exception as exc:
+        logger.warning(f"[VisionAgent] RAG advice context unavailable: {exc}")
+    if doc_excerpt:
+        context += "\nCare guideline excerpt:\n" + doc_excerpt[:500]
+
+    try:
+        resp = await llm_client.chat.completions.create(
+            model=LLM_MODEL,
+            messages=[
+                {"role": "system", "content": _ADVICE_SYSTEM_PROMPT + f" Respond in '{language}'."},
+                {"role": "user", "content": context},
+            ],
+            temperature=settings.LLM_TEMPERATURE,
+            max_tokens=180,
+        )
+        advice = (resp.choices[0].message.content or "").strip()
+        return advice or _static_advice(result.get("status", "NORMAL"), result.get("score", 0.0))
+    except Exception as exc:
+        logger.warning(f"[VisionAgent] Advice LLM failed; using static tips: {exc}")
+        return _static_advice(result.get("status", "NORMAL"), result.get("score", 0.0))
+
+
 async def vision_agent_node(state: AgentState) -> AgentState:
     logger.info(f"[VisionAgent] Starting analysis for patient {state['patient_id']}")
     errors = list(state.get("errors", []))
@@ -190,8 +267,21 @@ async def vision_agent_node(state: AgentState) -> AgentState:
     except ValueError:
         severity_enum = WoundSeverity.NORMAL
 
-    # Persist to database
+    # Load patient context (doctor's notes) and generate AI advice
     db: Session = SessionLocal()
+    patient_context = ""
+    try:
+        active_course = db.query(MedicalCourse).filter(
+            MedicalCourse.patient_id == state["patient_id"],
+            MedicalCourse.status == "ACTIVE",
+        ).first()
+        patient_context = getattr(active_course, "patient_context", "") or ""
+    except Exception as e:
+        logger.warning(f"[VisionAgent] Could not load patient context: {e}")
+
+    advice = await generate_ai_advice(result, patient_context=patient_context)
+
+    # Persist to database
     wound_analysis_id = None
     try:
         analysis = WoundAnalysis(
@@ -204,6 +294,7 @@ async def vision_agent_node(state: AgentState) -> AgentState:
             swelling_detected=("swelling" in result["summary"].lower()),
             texture_change_detected=("texture" in result["summary"].lower()),
             analysis_summary=result["summary"],
+            ai_advice=advice,
             wound_score=result["score"],
         )
         db.add(analysis)
@@ -227,5 +318,6 @@ async def vision_agent_node(state: AgentState) -> AgentState:
         "swelling_detected": ("swelling" in result["summary"].lower()),
         "texture_change_detected": ("texture" in result["summary"].lower()),
         "wound_analysis_summary": result["summary"],
+        "wound_ai_advice": advice,
         "errors": errors,
     }

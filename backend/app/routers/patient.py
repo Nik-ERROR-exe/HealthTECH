@@ -307,6 +307,7 @@ async def submit_wound_checkin(
         symptom_summary    = final_state.get("symptom_summary"),
         new_interval_hours = final_state.get("new_interval_hours"),
         errors             = final_state.get("errors", []),
+        ai_advice          = final_state.get("wound_ai_advice"),
     )
 
 # ────────────────────────────────────────────
@@ -444,6 +445,7 @@ async def upload_wound_photo(
         wound_score       = final_state.get("wound_score", 0.0),
         total_score       = final_state.get("total_score"),
         tier              = final_state.get("tier"),
+        ai_advice         = final_state.get("wound_ai_advice"),
     )
 
 
@@ -798,6 +800,7 @@ def get_wound_history(
                 "thumbnail_url": w.image_url,
                 "score":         float(w.wound_score or 0),
                 "status":        w.severity.value if w.severity else "NORMAL",
+                "ai_advice":     w.ai_advice,
             })
 
         return {"wounds": results}
