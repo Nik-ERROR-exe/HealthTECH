@@ -1,9 +1,11 @@
-import { useState, useEffect } from 'react';import { useTranslation } from 'react-i18next';
+import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { Menu, X, Sun, Moon, LogOut } from 'lucide-react';
+import { Menu, X, LogOut } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { getUser, clearAuth, isAuthenticated, getDashboardPath } from '@/lib/auth';
 import { LanguageSwitcher } from './LanguageSwitcher';
+import { AnimatedThemeToggler } from './ui/animated-theme-toggler';
 
 const Navbar = () => {
   const { t } = useTranslation();
@@ -14,32 +16,25 @@ const Navbar = () => {
   const user = getUser();
   const authed = isAuthenticated();
 
-  // Initialize theme from localStorage or system preference
+  // Initialize & observe theme from document element class list
   useEffect(() => {
-    const savedTheme = localStorage.getItem('theme');
-    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const checkDark = () => {
+      setDark(document.documentElement.classList.contains('dark'));
+    };
 
-    if (savedTheme === 'dark' || (!savedTheme && prefersDark)) {
-      document.documentElement.classList.add('dark');
-      setDark(true);
-    } else {
-      document.documentElement.classList.remove('dark');
-      setDark(false);
-    }
+    checkDark();
+
+    const observer = new MutationObserver(() => {
+      checkDark();
+    });
+
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class'],
+    });
+
+    return () => observer.disconnect();
   }, []);
-
-  const toggleDark = () => {
-    const newDark = !dark;
-    setDark(newDark);
-
-    if (newDark) {
-      document.documentElement.classList.add('dark');
-      localStorage.setItem('theme', 'dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-      localStorage.setItem('theme', 'light');
-    }
-  };
 
   const handleAnchorClick = (sectionId: string) => {
     if (location.pathname === '/') {
@@ -59,7 +54,7 @@ const Navbar = () => {
     navigate('/login');
   };
 
-  // Choose logo based on theme
+  // LIGHT THEME: /CareNetra_white.png (seamless white box) | DARK THEME: /CareNetra_black.png (seamless dark box)
   const logoSrc = dark ? '/CareNetra_black.png' : '/CareNetra_white.png';
 
   // Smooth scroll to section
@@ -76,10 +71,11 @@ const Navbar = () => {
     <nav className="sticky top-0 z-50 bg-background/80 backdrop-blur-md border-b border-border">
       <div className="container mx-auto flex items-center justify-between h-16 px-4">
         <Link to="/" className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg gradient-primary flex items-center justify-center">
-            <span className="text-primary-foreground font-bold text-sm">C</span>
-          </div>
-          <span className="font-bold text-xl text-foreground uppercase tracking-tight">{t('header.title')}</span>
+          <img
+            src={logoSrc}
+            alt="CARENETRA Logo"
+            className="h-10 sm:h-11 w-auto object-contain transition-opacity duration-200"
+          />
         </Link>
 
         <div className="hidden md:flex items-center gap-6">
@@ -99,19 +95,11 @@ const Navbar = () => {
             </>
           )}
           <LanguageSwitcher />
-          <button onClick={toggleDark} className="p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground">
-            {dark ? <Sun size={18} /> : <Moon size={18} />}
-          </button>
+          <AnimatedThemeToggler />
         </div>
 
         <div className="flex md:hidden items-center gap-2">
-          <button
-            onClick={toggleDark}
-            className="p-2 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-800 transition-colors text-gray-700 dark:text-gray-300"
-            aria-label="Toggle theme"
-          >
-            {dark ? <Sun size={18} /> : <Moon size={18} />}
-          </button>
+          <AnimatedThemeToggler />
           <button onClick={() => setMobileOpen(!mobileOpen)} className="p-2 text-gray-900 dark:text-white">
             {mobileOpen ? <X size={24} /> : <Menu size={24} />}
           </button>
