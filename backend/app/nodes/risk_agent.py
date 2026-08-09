@@ -95,7 +95,6 @@ def _fallback_prediction(fever: float, fatigue: float, medication: float,
 
 # ── Main agent node ───────────────────────────────────────────────────────────
 async def risk_agent_node(state: AgentState) -> AgentState:
-    print("===== RISK AGENT NODE CALLED =====", flush=True)
     logger.info(f"[RiskAgent] Running risk assessment for patient {state['patient_id']}")
     errors = list(state.get("errors", []))
 

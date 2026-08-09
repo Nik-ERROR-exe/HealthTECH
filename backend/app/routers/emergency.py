@@ -79,7 +79,7 @@ def _get_patient_doctor_phone(user_id: str, db: Session) -> Optional[str]:
     if not course:
         return None
     doctor = db.query(DoctorProfile).filter(DoctorProfile.id == course.doctor_id).first()
-    return doctor.hospital_name if doctor else None
+    return doctor.phone if doctor else None
 
 # ── POST /emergency/impact ───────────────────────────────────────────────────
 
@@ -204,6 +204,7 @@ async def update_location(
 async def volunteer_respond(
     alert_id: str,
     payload: RespondRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
     alert = db.query(ImpactAlert).filter(ImpactAlert.id == alert_id).first()

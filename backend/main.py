@@ -1,5 +1,6 @@
 from dotenv import load_dotenv
 load_dotenv()
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -28,6 +29,31 @@ from app.routers.volunteer import router as volunteer_router
 # from app.routers.agent import router as agent_router
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Start the proactive monitoring scheduler (guarded against uvicorn --reload double-start).
+    from app.scheduler import scheduler, start_scheduler
+    if not scheduler.running:
+        start_scheduler()
+
+    # Warm the RAG knowledge index — never fatal (falls back to no-RAG).
+    try:
+        from app.rag.vector_store import ensure_collection
+        from app.rag.indexer import index_knowledge_base
+        ensure_collection()
+        await index_knowledge_base()
+    except Exception as exc:
+        logger.warning(f"[RAG] knowledge index skipped at startup: {exc}")
+
+    yield
+
+    try:
+        from app.scheduler import stop_scheduler
+        stop_scheduler()
+    except Exception:
+        pass
+
+
 def create_app() -> FastAPI:
     app = FastAPI(
         title="CARENETRA API",
@@ -35,6 +61,7 @@ def create_app() -> FastAPI:
         version="1.0.0",
         docs_url="/docs",
         redoc_url="/redoc",
+        lifespan=lifespan,
     )
 
     # ── CORS ──
@@ -75,8 +102,8 @@ logger = logging.getLogger(__name__)
 async def global_exception_handler(request: Request, exc: Exception):
     logger.error(f"[GLOBAL ERROR] {request.method} {request.url} → {exc}")
     return JSONResponse(
-        status_code=200,
-        content={"data": None, "error": str(exc), "message": "No data available"},
+        status_code=500,
+        content={"detail": "Internal server error"},
     )
 
 

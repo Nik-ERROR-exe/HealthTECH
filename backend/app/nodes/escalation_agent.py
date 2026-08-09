@@ -120,7 +120,7 @@ async def escalation_agent_node(state: AgentState) -> AgentState:
                 if doctor_user:
                     doctor_email = doctor_user.email
                     doctor_name  = doctor_user.full_name
-                    doctor_phone = doctor_profile.hospital_name  # phone stored separately in future
+                    doctor_phone = doctor_profile.phone  # may be None for older accounts
 
         # ── Create alert record ───────────────────────────────────
         alert = Alert(
