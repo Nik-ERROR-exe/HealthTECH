@@ -18,6 +18,13 @@ import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import api from '@/lib/api';
 import Lenis from '@studio-freight/lenis';
+import { getUser } from '@/lib/auth';
+import {
+  isDr26DoctorEmail,
+  abhayDoctorPatientSummary,
+  abhayDoctorPatientDetail,
+  ABHAY_UID
+} from '@/lib/abhay-demo-data';
 
 // ===== Types (same as backend) =====
 interface PatientSummary {
@@ -207,6 +214,24 @@ const DoctorDashboard = () => {
   useEffect(() => { fetchDashboard(); fetchPracticeStats(); fetchVolunteerStatus(); }, []);
 
   const fetchDashboard = async () => {
+    const currentUser = getUser();
+    if (isDr26DoctorEmail(currentUser?.email)) {
+      const demoData = {
+        total_patients: 1,
+        critical_count: 0,
+        high_risk_count: 0,
+        stable_count: 1,
+        patients: [abhayDoctorPatientSummary],
+        active_alerts: [],
+      };
+      setDashData(demoData as any);
+      setAlerts([]);
+      setSelectedPatientId('p-abhay-26');
+      fetchPatientDetail('p-abhay-26');
+      setLoading(false);
+      return;
+    }
+
     try {
       const currentLang = i18n.resolvedLanguage || i18n.language || 'en';
       const langCode = currentLang.split('-')[0];
@@ -224,6 +249,13 @@ const DoctorDashboard = () => {
   };
 
   const fetchPatientDetail = async (patientId: string) => {
+    const currentUser = getUser();
+    if (isDr26DoctorEmail(currentUser?.email) || patientId === 'p-abhay-26' || patientId === ABHAY_UID) {
+      setDetail(abhayDoctorPatientDetail as any);
+      setDetailLoading(false);
+      return;
+    }
+
     setDetailLoading(true);
     try {
       const currentLang = i18n.resolvedLanguage || i18n.language || 'en';
@@ -667,7 +699,7 @@ const DoctorDashboard = () => {
                           <div key={w.id} className="p-3 bg-muted/40 rounded-lg border border-border/50 flex flex-col md:flex-row gap-4">
                             {w.image_url && (
                               <div className="w-full md:w-32 h-32 shrink-0 rounded-md overflow-hidden bg-muted flex items-center justify-center">
-                                <img src={api.getUri().replace('/api', '') + '/' + w.image_url.replace(/\\/g, '/')} alt="Wound" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).src = 'https://placehold.co/400?text=No+Image' }} />
+                                <img src={w.image_url.startsWith('/') || w.image_url.startsWith('http') ? w.image_url : (api.getUri().replace('/api', '') + '/' + w.image_url.replace(/\\/g, '/'))} alt="Wound" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).src = 'https://placehold.co/400?text=No+Image' }} />
                               </div>
                             )}
                             <div className="flex-1">
