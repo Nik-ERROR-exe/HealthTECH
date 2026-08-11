@@ -13,15 +13,18 @@ interface RegisterForm {
   email: string;
   password: string;
   confirmPassword: string;
-  role: 'DOCTOR' | 'PATIENT' | 'VOLUNTEER';
+  role: 'DOCTOR' | 'PATIENT' | 'VOLUNTEER' | 'RELATIVE';
   phone?: string;
   area_description?: string;
+  patient_unique_id?: string;
+  relationship_type?: string;
 }
 
 const ROLES = [
   { value: 'PATIENT', icon: Heart, label: 'Patient' },
   { value: 'DOCTOR', icon: Stethoscope, label: 'Doctor' },
   { value: 'VOLUNTEER', icon: Users, label: 'Volunteer' },
+  { value: 'RELATIVE', icon: Users, label: 'Relative' },
 ] as const;
 
 const formItemVariants = {
@@ -59,14 +62,24 @@ const RegisterPage = () => {
     setLoading(true);
 
     try {
-      await api.post('/auth/register', {
-        email: data.email,
-        password: data.password,
-        full_name: data.full_name,
-        role: data.role,
-        phone: data.phone || undefined,
-        area_description: data.area_description || undefined,
-      });
+      if (data.role === 'RELATIVE') {
+        await api.post('/auth/register-relative', {
+          email: data.email,
+          password: data.password,
+          full_name: data.full_name,
+          patient_unique_id: data.patient_unique_id,
+          relationship_type: data.relationship_type,
+        });
+      } else {
+        await api.post('/auth/register', {
+          email: data.email,
+          password: data.password,
+          full_name: data.full_name,
+          role: data.role,
+          phone: data.phone || undefined,
+          area_description: data.area_description || undefined,
+        });
+      }
       toast.success(t('auth.registerSuccess'));
       navigate('/login');
     } catch (err: any) {
@@ -96,10 +109,10 @@ const RegisterPage = () => {
               </p>
             </div>
 
-            <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-              {/* Role selector */}
-              <div className="grid grid-cols-3 gap-3">
-                {ROLES.map((r) => (
+             <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+               {/* Role selector */}
+               <div className="grid grid-cols-4 gap-3">
+                 {ROLES.map((r) => (
                   <label
                     key={r.value}
                     className={`flex flex-col items-center gap-2 p-3 rounded-xl border transition-all cursor-pointer ${
@@ -198,37 +211,74 @@ const RegisterPage = () => {
                 {/* Volunteer Fields */}
                 <motion.div
                   initial={false}
-                  animate={{ height: selectedRole === 'VOLUNTEER' ? 'auto' : 0, opacity: selectedRole === 'VOLUNTEER' ? 1 : 0 }}
+                  animate={{ height: (selectedRole === 'VOLUNTEER' || selectedRole === 'RELATIVE') ? 'auto' : 0, opacity: (selectedRole === 'VOLUNTEER' || selectedRole === 'RELATIVE') ? 1 : 0 }}
                   className="overflow-hidden space-y-4"
                 >
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-foreground ml-1">{t('auth.phone')} <span className="text-muted-foreground font-normal">{t('auth.phoneDesc')}</span></label>
-                    <div className="relative group">
-                      <div className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground group-focus-within:text-primary transition-colors">
-                        <Phone size={18} />
+                  {selectedRole === 'VOLUNTEER' && (
+                    <>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-foreground ml-1">{t('auth.phone')} <span className="text-muted-foreground font-normal">{t('auth.phoneDesc')}</span></label>
+                        <div className="relative group">
+                          <div className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground group-focus-within:text-primary transition-colors">
+                            <Phone size={18} />
+                          </div>
+                          <input
+                            {...register('phone')}
+                            type="text"
+                            className="w-full bg-muted/50 border border-border rounded-xl py-3 pl-10 pr-4 outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                            placeholder="+91 98765 43210"
+                          />
+                        </div>
                       </div>
-                      <input
-                        {...register('phone')}
-                        type="text"
-                        className="w-full bg-muted/50 border border-border rounded-xl py-3 pl-10 pr-4 outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-                        placeholder="+91 98765 43210"
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-foreground ml-1">{t('auth.area')} <span className="text-muted-foreground font-normal">{t('auth.areaDesc')}</span></label>
-                    <div className="relative group">
-                      <div className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground group-focus-within:text-primary transition-colors">
-                        <MapPin size={18} />
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-foreground ml-1">{t('auth.area')} <span className="text-muted-foreground font-normal">{t('auth.areaDesc')}</span></label>
+                        <div className="relative group">
+                          <div className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground group-focus-within:text-primary transition-colors">
+                            <MapPin size={18} />
+                          </div>
+                          <input
+                            {...register('area_description')}
+                            type="text"
+                            className="w-full bg-muted/50 border border-border rounded-xl py-3 pl-10 pr-4 outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                            placeholder="Mumbai, India"
+                          />
+                        </div>
                       </div>
-                      <input
-                        {...register('area_description')}
-                        type="text"
-                        className="w-full bg-muted/50 border border-border rounded-xl py-3 pl-10 pr-4 outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-                        placeholder="Mumbai, India"
-                      />
-                    </div>
-                  </div>
+                    </>
+                  )}
+                  {selectedRole === 'RELATIVE' && (
+                    <>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-foreground ml-1">Patient Unique ID</label>
+                        <div className="relative group">
+                          <div className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground group-focus-within:text-primary transition-colors">
+                            <Heart size={18} />
+                          </div>
+                          <input
+                            {...register('patient_unique_id', { required: selectedRole === 'RELATIVE' })}
+                            type="text"
+                            className="w-full bg-muted/50 border border-border rounded-xl py-3 pl-10 pr-4 outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                            placeholder="CNT-48291"
+                          />
+                        </div>
+                        {errors.patient_unique_id && <p className="text-xs text-destructive ml-1">Patient ID is required</p>}
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-foreground ml-1">Relationship</label>
+                        <select
+                          {...register('relationship_type', { required: selectedRole === 'RELATIVE' })}
+                          className="w-full bg-muted/50 border border-border rounded-xl py-3 pl-4 pr-4 outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                        >
+                          <option value="">Select relationship</option>
+                          <option value="DAUGHTER">Daughter</option>
+                          <option value="SON">Son</option>
+                          <option value="FRIEND">Friend</option>
+                          <option value="OTHER">Other</option>
+                        </select>
+                        {errors.relationship_type && <p className="text-xs text-destructive ml-1">Relationship is required</p>}
+                      </div>
+                    </>
+                  )}
                 </motion.div>
               </div>
 

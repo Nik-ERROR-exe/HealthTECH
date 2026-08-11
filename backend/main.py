@@ -17,6 +17,7 @@ from app.models.models import (
     MedicalCourse, Medication, CheckIn,
     RiskScore, WoundAnalysis, Alert,
     DoctorMessage, AgentSession, MonitoringSchedule,
+    RelativeProfile,
 )
 
 # Routers
@@ -26,6 +27,7 @@ from app.routers.doctor import router as doctor_router
 from app.routers.conversation import router as conversation_router
 from app.routers.emergency import router as emergency_router
 from app.routers.volunteer import router as volunteer_router
+from app.routers.relative import router as relative_router
 # from app.routers.agent import router as agent_router
 
 
@@ -67,7 +69,7 @@ def create_app() -> FastAPI:
     # ── CORS ──
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=["http://localhost:8080", "http://localhost:5173", "http://localhost:3000"],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -84,6 +86,7 @@ def create_app() -> FastAPI:
     app.include_router(conversation_router, prefix="/api")
     app.include_router(emergency_router, prefix="/api")
     app.include_router(volunteer_router, prefix="/api")
+    app.include_router(relative_router, prefix="/api")
     # app.include_router(agent_router, prefix="/api")
 
     # ── Health check ──

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Mail, Lock, Loader2, ArrowRight, Eye, EyeOff } from 'lucide-react';
+import { Mail, Lock, Loader2, ArrowRight, Eye, EyeOff, Heart, Stethoscope, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import api from '@/lib/api';
@@ -12,6 +12,7 @@ const LoginPage = () => {
   const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
   const [showPass, setShowPass] = useState(false);
+  const [role, setRole] = useState<'PATIENT' | 'DOCTOR' | 'VOLUNTEER' | 'RELATIVE'>('PATIENT');
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -25,14 +26,15 @@ const LoginPage = () => {
     const inputEmail = formData.email.trim().toLowerCase();
 
     try {
-      const res = await api.post('/auth/login', formData);
-      const { access_token, user_id, role, full_name, unique_uid } = res.data;
+      const endpoint = role === 'RELATIVE' ? '/auth/login-relative' : '/auth/login';
+      const res = await api.post(endpoint, formData);
+      const data = res.data;
       
       const userObj = {
-        id: user_id,
-        role: role,
-        name: full_name,
-        unique_uid: unique_uid,
+        id: data.user_id,
+        role: data.role,
+        name: data.full_name,
+        unique_uid: data.unique_uid,
         email: formData.email
       };
 
@@ -40,11 +42,12 @@ const LoginPage = () => {
         localStorage.setItem('carenetra_payment_status_CNT-33422', 'PAID');
       }
 
-      setAuth(access_token, userObj);
+      setAuth(data.access_token, userObj);
       toast.success(t('auth.loginSuccess'));
       
-      if (role === 'DOCTOR') navigate('/doctor/dashboard');
-      else if (role === 'VOLUNTEER') navigate('/volunteer/dashboard');
+      if (data.role === 'DOCTOR') navigate('/doctor/dashboard');
+      else if (data.role === 'VOLUNTEER') navigate('/volunteer/dashboard');
+      else if (data.role === 'RELATIVE') navigate('/relative/dashboard');
       else navigate('/patient/dashboard');
     } catch (err: any) {
       // Fallback for specific demo accounts if backend returns error or is offline
@@ -83,6 +86,13 @@ const LoginPage = () => {
     }
   };
 
+  const roles = [
+    { value: 'PATIENT' as const, icon: Heart, label: 'Patient' },
+    { value: 'DOCTOR' as const, icon: Stethoscope, label: 'Doctor' },
+    { value: 'VOLUNTEER' as const, icon: Users, label: 'Volunteer' },
+    { value: 'RELATIVE' as const, icon: Users, label: 'Relative' },
+  ];
+
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <Navbar />
@@ -101,6 +111,25 @@ const LoginPage = () => {
                   {t('auth.register')}
                 </Link>
               </p>
+            </div>
+
+            {/* Role Toggle */}
+            <div className="grid grid-cols-4 gap-3 mb-6">
+              {roles.map((r) => (
+                <button
+                  key={r.value}
+                  type="button"
+                  onClick={() => setRole(r.value)}
+                  className={`flex flex-col items-center gap-2 p-3 rounded-xl border transition-all cursor-pointer ${
+                    role === r.value
+                      ? 'bg-primary/10 border-primary text-primary'
+                      : 'bg-muted/30 border-border text-muted-foreground hover:bg-muted/50'
+                  }`}
+                >
+                  <r.icon size={20} />
+                  <span className="text-[10px] font-bold uppercase tracking-wider">{r.label}</span>
+                </button>
+              ))}
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-5">

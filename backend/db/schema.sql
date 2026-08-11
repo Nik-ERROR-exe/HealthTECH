@@ -43,7 +43,7 @@ DROP TYPE IF EXISTS userrole CASCADE;
 -- Labels MUST match the Python enum NAMES (the code filters on these).
 -- ─────────────────────────────────────────────
 
-CREATE TYPE userrole            AS ENUM ('PATIENT', 'DOCTOR', 'VOLUNTEER');
+CREATE TYPE userrole            AS ENUM ('PATIENT', 'DOCTOR', 'VOLUNTEER', 'RELATIVE');
 CREATE TYPE risktier            AS ENUM ('GREEN', 'YELLOW', 'ORANGE', 'RED', 'EMERGENCY');
 CREATE TYPE alertstatus         AS ENUM ('PENDING', 'ACKNOWLEDGED', 'DISPATCHED', 'DISMISSED');
 CREATE TYPE alerttype           AS ENUM ('NUDGE', 'DOCTOR', 'CRITICAL', 'EMERGENCY');
@@ -129,6 +129,17 @@ CREATE TABLE volunteer_profiles (
     current_latitude  DOUBLE PRECISION,
     current_longitude DOUBLE PRECISION,
     last_active_at    TIMESTAMPTZ,
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TYPE relationshiptype AS ENUM ('DAUGHTER', 'SON', 'FRIEND', 'OTHER');
+
+CREATE TABLE relative_profiles (
+    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id           UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+    patient_id        UUID NOT NULL REFERENCES patient_profiles(id) ON DELETE CASCADE,
+    relationship_type relationshiptype NOT NULL,
     created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
