@@ -23,7 +23,7 @@ api.interceptors.request.use((config) => {
     try {
       const user = JSON.parse(userStr);
       // If URL is for volunteer and logged‑in user is NOT a volunteer, block the request
-      if (config.url?.includes('/volunteer/') && user.role !== 'volunteer') {
+      if (config.url?.includes('/volunteer/') && user.role !== 'VOLUNTEER') {
         return Promise.reject(new Error('Unauthorized: patient cannot access volunteer endpoints'));
       }
     } catch (e) {
