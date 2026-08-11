@@ -140,6 +140,8 @@ const PatientDashboard = () => {
   const [copied, setCopied] = useState(false);
   const [uploadingWound, setUploadingWound] = useState(false);
   const [nearbyVolunteers, setNearbyVolunteers] = useState<number | null>(null);
+  const [emergencyLoading, setEmergencyLoading] = useState(false);
+  const [emergencyResult, setEmergencyResult] = useState<{ alert_id: string; maps_url: string; volunteers_notified: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const impactDetectorRef = useRef<ImpactDetectorHandle>(null);  // <-- FIXED
 
@@ -231,6 +233,46 @@ const PatientDashboard = () => {
     } finally {
       setUploadingWound(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleEmergency = async () => {
+    setEmergencyLoading(true);
+    setEmergencyResult(null);
+    try {
+      let lat: number | null = null;
+      let lng: number | null = null;
+      try {
+        const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: true,
+            timeout: 10000,
+          });
+        });
+        lat = pos.coords.latitude;
+        lng = pos.coords.longitude;
+      } catch {
+        toast.error('Could not get GPS. Sending alert without exact location.');
+      }
+
+      const res = await api.post('/emergency/impact', {
+        latitude: lat,
+        longitude: lng,
+        reported_by_name: data?.full_name || user?.name || 'CARENETRA User',
+        reported_by_phone: data?.emergency_contact_phone || null,
+        reported_by_user_id: user?.id || null,
+      });
+
+      setEmergencyResult({
+        alert_id: res.data.alert_id,
+        maps_url: res.data.maps_url,
+        volunteers_notified: res.data.volunteers_notified,
+      });
+      toast.success(`Emergency alert sent! ${res.data.volunteers_notified} volunteer(s) notified.`);
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Failed to send emergency alert. Please call emergency services.');
+    } finally {
+      setEmergencyLoading(false);
     }
   };
 
@@ -332,9 +374,46 @@ const PatientDashboard = () => {
                 <Wifi size={12} />
                 <span>Live Sync</span>
               </div>
+              <button
+                onClick={handleEmergency}
+                disabled={emergencyLoading}
+                className="flex items-center gap-1.5 text-xs px-4 py-2 rounded-full bg-destructive/10 border border-destructive/20 text-destructive hover:bg-destructive/20 transition-colors disabled:opacity-50"
+              >
+                {emergencyLoading ? <Loader2 size={12} className="animate-spin" /> : <AlertTriangle size={12} />}
+                {emergencyLoading ? 'Sending...' : 'Emergency'}
+              </button>
             </div>
           </div>
         </motion.div>
+
+        {/* Emergency Alert Result */}
+        {emergencyResult && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="glass-card rounded-3xl p-5 border-l-8 border-l-destructive"
+          >
+            <div className="flex items-start justify-between flex-wrap gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-wider text-destructive font-semibold">Emergency Alert Sent</p>
+                <p className="text-sm text-foreground mt-1">
+                  {emergencyResult.volunteers_notified} volunteer{emergencyResult.volunteers_notified !== 1 ? 's' : ''} notified
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">Alert ID: {emergencyResult.alert_id}</p>
+              </div>
+              {emergencyResult.maps_url && (
+                <a
+                  href={emergencyResult.maps_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 text-xs px-4 py-2 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive hover:bg-destructive/20 transition-colors"
+                >
+                  <MapPin size={12} /> View Location
+                </a>
+              )}
+            </div>
+          </motion.div>
+        )}
 
         {/* Risk + AI Insight Row */}
         <div className="grid md:grid-cols-2 gap-5">
