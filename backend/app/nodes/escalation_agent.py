@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
 from app.agents.state import AgentState
+from app.config import settings
 from app.database import SessionLocal
 from app.models.models import (
     Alert, AlertType, AlertStatus,
@@ -36,6 +37,42 @@ def _build_alert_message(tier: str, state: AgentState) -> str:
         "EMERGENCY": f"EMERGENCY: Patient risk score is {score}/100. Immediate intervention required. {summary}",
     }
     return templates.get(tier, f"Patient risk score: {score}/100.")
+
+
+def _resolve_emergency_contact_phone(patient_phone: str | None, tier: str) -> str | None:
+    """
+    Demo override for RED/EMERGENCY escalations: route the emergency-contact SMS
+    to the hackathon presenter's phone (DEMO_EMERGENCY_PHONE_NUMBER) when set,
+    "instead of dialing real emergency services". Falls back to the patient's real
+    emergency contact when unset. (Email override is handled globally in
+    `send_email_alert` via DEMO_EMERGENCY_EMAIL.)
+    """
+    if tier in ("RED", "EMERGENCY") and settings.DEMO_EMERGENCY_PHONE_NUMBER:
+        return settings.DEMO_EMERGENCY_PHONE_NUMBER
+    return patient_phone
+
+
+def _build_alert_email_html(state: AgentState, patient_name: str) -> str:
+    """
+    Rich HTML alert email body: patient name, risk tier, red-flag symptoms, and a
+    deep-link CTA straight into the check-in UI.
+    """
+    tier     = state.get("tier", "GREEN")
+    score    = state.get("total_score", 0)
+    symptoms = state.get("symptom_summary") or "No symptoms reported."
+    sid      = state.get("session_id")
+    link     = f"{settings.FRONTEND_URL}/checkin?session_id={sid}&autostart=true" if sid \
+               else f"{settings.FRONTEND_URL}/checkin?autostart=true"
+    button = (
+        f'<a href="{link}" style="display:inline-block;background:#00C896;color:#ffffff;'
+        f'padding:12px 22px;border-radius:8px;text-decoration:none;font-weight:bold;">'
+        f'Open Patient Check-in</a>'
+    )
+    return (
+        f"<p><strong>{patient_name}</strong> — Risk tier: {tier} ({score}/100)</p>"
+        f"<p><strong>Red-flag symptoms:</strong> {symptoms}</p>"
+        f'<p style="margin:24px 0;">{button}</p>'
+    )
 
 
 async def escalation_agent_node(state: AgentState) -> AgentState:
@@ -99,7 +136,9 @@ async def escalation_agent_node(state: AgentState) -> AgentState:
                 User.id == patient_profile.user_id
             ).first()
             patient_name            = patient_user.full_name if patient_user else "Patient"
-            emergency_contact_phone = patient_profile.emergency_contact_phone
+            emergency_contact_phone = _resolve_emergency_contact_phone(
+                patient_profile.emergency_contact_phone, tier
+            )
             emergency_contact_email = patient_profile.emergency_contact_email
 
         # Get assigned doctor via active medical course
@@ -155,7 +194,7 @@ async def escalation_agent_node(state: AgentState) -> AgentState:
                 to_email         = doctor_email,
                 to_name          = doctor_name or "Doctor",
                 subject          = subject,
-                body             = message,
+                body             = _build_alert_email_html(state, patient_name),
                 wound_image_path = state.get("wound_image_path"),
                 wound_summary    = state.get("wound_analysis_summary"),
             )
@@ -198,7 +237,7 @@ async def escalation_agent_node(state: AgentState) -> AgentState:
                     to_email = emergency_contact_email,
                     to_name  = "Emergency Contact",
                     subject  = f"[CARENETRA] Health alert for {patient_name}",
-                    body     = f"This is an automated health alert. {patient_name}'s monitoring score is {total_score}/100. Please check on them or contact their doctor.",
+                    body     = _build_alert_email_html(state, patient_name),
                 )
             except Exception as e:
                 errors.append(f"EscalationAgent emergency email failed: {e}")

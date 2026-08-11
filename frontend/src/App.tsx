@@ -15,6 +15,7 @@ const DoctorDashboard = lazy(() => import('./pages/DoctorDashboard'));
 const CreateCourse = lazy(() => import('./pages/CreateCourse'));
 const ProfilePage = lazy(() => import('./pages/ProfilePage'));
 const VolunteerDashboard = lazy(() => import('./pages/VolunteerDashboard'));
+const CheckinPage = lazy(() => import('./pages/CheckinPage'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 
 const queryClient = new QueryClient();
@@ -31,6 +32,7 @@ const App = () => (
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
             <Route path="/patient/dashboard" element={<ProtectedRoute requiredRole="PATIENT"><PatientDashboard /></ProtectedRoute>} />
+            <Route path="/checkin" element={<ProtectedRoute requiredRole="PATIENT"><CheckinPage /></ProtectedRoute>} />
             <Route path="/patient/profile" element={<ProtectedRoute requiredRole="PATIENT"><ProfilePage /></ProtectedRoute>} />
             <Route path="/doctor/dashboard" element={<ProtectedRoute requiredRole="DOCTOR"><DoctorDashboard /></ProtectedRoute>} />
             <Route path="/doctor/patient/:id" element={<ProtectedRoute requiredRole="DOCTOR"><DoctorDashboard /></ProtectedRoute>} />

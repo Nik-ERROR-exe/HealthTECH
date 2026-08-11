@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import {
   MessageCircle, X, Mic, MicOff, Send, Upload,
-  Loader2, Volume2, VolumeX,
+  Volume2, VolumeX, Phone, AlertTriangle,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
@@ -30,7 +31,25 @@ interface ChatMessage {
   options?: string[];
   questionType?: string;
   isLatest?: boolean;
+  imageUrl?: string;
 }
+
+const INTERNAL_STATE_KEYS = new Set([
+  'general_feeling', 'wound_check', 'medication', 'pain_check',
+  'symptoms_check', 'fever_check', 'discharge_check', 'dressing_change'
+]);
+
+const cleanQuestionText = (text: string): string => {
+  if (!text) return "Hello! How are you feeling overall today?";
+  const trimmed = text.trim();
+  if (INTERNAL_STATE_KEYS.has(trimmed)) {
+    if (trimmed === 'general_feeling') return "Hello! How are you feeling overall today?";
+    if (trimmed === 'wound_check') return "How is your wound looking and feeling today?";
+    if (trimmed === 'medication') return "Have you taken your prescribed medications today?";
+    return "How are you feeling right now?";
+  }
+  return trimmed;
+};
 
 type Phase = 'idle' | 'starting' | 'chatting' | 'photo' | 'submitting' | 'done';
 
@@ -41,6 +60,19 @@ const TIER_CONFIG = {
   RED:       { color: 'text-red-400',     icon: '🔴', label: 'High risk' },
   EMERGENCY: { color: 'text-red-600',     icon: '🚨', label: 'Emergency' },
 } as const;
+
+// Emergency red-flag phrases — mirrors the backend regex in nurse_agent.py so the
+// patient UI can halt the conversation and raise the alert instantly, before the
+// round-trip to the server.
+const EMERGENCY_KEYWORDS_RE =
+  /chest pain|can'?t breathe|cannot breathe|can not breathe|bleeding heavily|call doctor|severe pain|in very pain|unconscious|\bhelp\b/i;
+
+interface EmergencyContacts {
+  emergency_contact_name?: string | null;
+  emergency_contact_phone?: string | null;
+  doctor_name?: string | null;
+  doctor_phone?: string | null;
+}
 
 const AgentChat = () => {
   const { i18n } = useTranslation();
@@ -55,6 +87,8 @@ const AgentChat = () => {
   const [ttsEnabled, setTtsEnabled]       = useState(true);
   const [finalTier, setFinalTier]         = useState<string | null>(null);
   const [currentLanguage, setCurrentLanguage] = useState<string>(i18n.language);
+  const [emergencyActive, setEmergencyActive]   = useState(false);
+  const [emergencyContacts, setEmergencyContacts] = useState<EmergencyContacts | null>(null);
 
   const [facialDistress,       setFacialDistress]       = useState(0);
   const [dominantEmotion,      setDominantEmotion]      = useState('neutral');
@@ -73,6 +107,37 @@ const AgentChat = () => {
   const fileInputRef   = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
   const voicesLoaded   = useRef(false);
+  const alertAudioRef  = useRef<HTMLAudioElement | null>(null);
+
+  // ── Emergency alert ───────────────────────────────────────────────────────
+  const stopAlertSound = useCallback(() => {
+    if (alertAudioRef.current) {
+      alertAudioRef.current.pause();
+      alertAudioRef.current.currentTime = 0;
+    }
+  }, []);
+
+  const playAlertSound = useCallback(() => {
+    try {
+      if (!alertAudioRef.current) alertAudioRef.current = new Audio('/alert.mp3');
+      alertAudioRef.current.loop = true;
+      alertAudioRef.current.play().catch(() => { /* autoplay may be blocked — fine */ });
+    } catch { /* ignore */ }
+  }, []);
+
+  const triggerEmergency = useCallback((contacts?: EmergencyContacts | null) => {
+    window.speechSynthesis.cancel();
+    recognitionRef.current?.stop();
+    setIsListening(false);
+    if (contacts) setEmergencyContacts(contacts);
+    setEmergencyActive(true);
+    playAlertSound();
+  }, [playAlertSound]);
+
+  const dismissEmergency = useCallback(() => {
+    stopAlertSound();
+    setEmergencyActive(false);
+  }, [stopAlertSound]);
 
   const isCheckinActive = faceAnalyzerEnabled && phase !== 'idle' && phase !== 'done';
 
@@ -96,13 +161,56 @@ const AgentChat = () => {
   }, [i18n]);
 
   useEffect(() => {
-    const handler = () => setOpen(true);
+    const handler = (e: any) => {
+      setOpen(true);
+      if (e?.detail?.nurse_message) {
+        if (e.detail.session_id) setSessionId(e.detail.session_id);
+        if (e.detail.image_url) {
+          addMsg({
+            role: 'patient',
+            content: `[Uploaded Wound Image](${e.detail.image_url})`,
+            imageUrl: e.detail.image_url,
+          });
+        }
+        const nurseMsg = e.detail.nurse_message;
+        const q: Question = {
+          id: 'wound_pain_level',
+          question: nurseMsg,
+          type: 'text',
+        };
+        displayQuestion(q);
+      }
+    };
     window.addEventListener('carenetra:open-agent-chat', handler);
     return () => window.removeEventListener('carenetra:open-agent-chat', handler);
   }, []);
 
+  // When the widget opens with no active conversation, resume any pending
+  // (agent-triggered) check-in — e.g. the scheduler's 1-minute demo trigger or
+  // a `/checkin?session_id=...` deep link — otherwise start the session immediately.
   useEffect(() => {
-    if (open && phase === 'idle' && messages.length === 0) initChat();
+    if (!open || phase !== 'idle' || messages.length > 0) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await conversationApi.getActive();
+        if (cancelled) return;
+        if (res.data?.has_active_session) {
+          const firstQ = res.data.first_question as Question | undefined;
+          setSessionId(res.data.session_id);
+          if (firstQ) {
+            displayQuestion(firstQ);
+          } else {
+            startSession();
+          }
+          return;
+        }
+      } catch { /* fall through to starting a new session */ }
+      if (!cancelled) startSession();
+    })();
+
+    return () => { cancelled = true; };
   }, [open]); // eslint-disable-line
 
   // ── TTS ───────────────────────────────────────────────────────────────────────
@@ -158,6 +266,7 @@ const AgentChat = () => {
 
   const displayQuestion = useCallback((q: Question) => {
     setCurrentQ(q);
+    const cleanText = cleanQuestionText(q.question);
     let opts: string[] | undefined;
     if (q.type === 'mcq' && q.options && q.options.length > 0) {
       opts = q.options;
@@ -166,28 +275,25 @@ const AgentChat = () => {
     }
     addMsg({
       role:         'cara',
-      content:      q.question,
+      content:      cleanText,
       options:      opts,
       questionType: q.type,
       isLatest:     true,
     });
-    speak(q.question);
+    speak(cleanText);
     setPhase((q.type === 'photo' || q.type === 'photo_prompt') ? 'photo' : 'chatting');
   }, [addMsg, speak]);
 
   // ── Session flow ──────────────────────────────────────────────────────────────
 
   const initChat = async () => {
-    const welcomeMsg = i18n.t('chat.welcome', 'Ready to check your health? Please click "Start Check-in" to begin.');
-    addMsg({
-      role: 'cara',
-      content: welcomeMsg,
-    });
-    speak(welcomeMsg);
-    setPhase('idle');
+    startSession();
   };
 
   const startSession = async () => {
+    stopAlertSound();
+    setEmergencyActive(false);
+    setEmergencyContacts(null);
     setPhase('starting');
     try {
       const res = await conversationApi.start(i18n.language);
@@ -213,6 +319,14 @@ const AgentChat = () => {
   // ── Answer flow ──────────────────────────────────────────────────────────────
 
   const handleAnswerResponse = (data: any) => {
+    // Emergency intercept from the backend — halt and raise the red alert.
+    if (data.emergency_triggered) {
+      setFinalTier('EMERGENCY');
+      setPhase('done');
+      setFaceAnalyzerEnabled(false);
+      triggerEmergency(data.emergency_contacts || null);
+      return;
+    }
     if (data.risk_tier) {
       const tier = (data.risk_tier as string) || 'GREEN';
       const message = data.friendly_message || "Check-in complete. Take care!";
@@ -238,6 +352,21 @@ const AgentChat = () => {
     setTextInput('');
     setPhase('submitting');
 
+    // Instant local red-flag check — halt the stream immediately AND send the
+    // answer so the backend records + escalates (best-effort, non-blocking).
+    if (EMERGENCY_KEYWORDS_RE.test(answer)) {
+      setFinalTier('EMERGENCY');
+      setPhase('done');
+      setFaceAnalyzerEnabled(false);
+      triggerEmergency();
+      conversationApi.answer(sessionId, currentQ.id, answer, i18n.language)
+        .then(res => {
+          if (res.data?.emergency_contacts) setEmergencyContacts(res.data.emergency_contacts);
+        })
+        .catch(() => {});
+      return;
+    }
+
     try {
       const res = await conversationApi.answer(sessionId, currentQ.id, answer, i18n.language);
       handleAnswerResponse(res.data);
@@ -249,18 +378,30 @@ const AgentChat = () => {
 
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !sessionId || !currentQ) return;
+    if (!file) return;
 
-    addMsg({ role: 'patient', content: '📷 Wound photo uploaded' });
+    const previewUrl = URL.createObjectURL(file);
+    addMsg({ role: 'patient', content: '📷 Uploaded wound photo', imageUrl: previewUrl });
     setPhase('submitting');
 
     try {
-      await conversationApi.uploadWound(sessionId, file);
-      const res = await conversationApi.answer(sessionId, currentQ.id, 'photo_uploaded');
-      handleAnswerResponse(res.data);
+      if (sessionId) {
+        await conversationApi.uploadWound(sessionId, file);
+      }
+      const res = await conversationApi.dashboardUploadWound(file);
+      const data = res.data;
+      if (data.session_id) setSessionId(data.session_id);
+
+      const nurseMsg = data.nurse_message || data.summary || "I've analyzed your wound photo. How is your pain level right now?";
+      const nextQ: Question = {
+        id: 'wound_pain_level',
+        question: nurseMsg,
+        type: 'text',
+      };
+      displayQuestion(nextQ);
     } catch {
       toast.error('Photo upload failed. Please try again.');
-      setPhase('photo');
+      setPhase('chatting');
     } finally {
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
@@ -271,6 +412,13 @@ const AgentChat = () => {
     setPhase('submitting');
     try {
       const res = await conversationApi.submit(sessionId);
+      if (res.data.emergency_triggered) {
+        setFinalTier('EMERGENCY');
+        setPhase('done');
+        setFaceAnalyzerEnabled(false);
+        triggerEmergency(res.data.emergency_contacts || null);
+        return;
+      }
       const tier    = (res.data.risk_tier as string) || 'GREEN';
       const message = res.data.friendly_message || "Check-in complete. Take care!";
       setFinalTier(tier);
@@ -310,19 +458,24 @@ const AgentChat = () => {
   const handleClose = () => {
     window.speechSynthesis.cancel();
     recognitionRef.current?.stop();
+    stopAlertSound();
     setFaceAnalyzerEnabled(false);
     setOpen(false);
+    window.dispatchEvent(new Event('carenetra:agent-chat-dismissed'));
   };
 
   const resetChat = () => {
     window.speechSynthesis.cancel();
     recognitionRef.current?.stop();
+    stopAlertSound();
     setPhase('idle');
     setSessionId(null);
     setCurrentQ(null);
     setMessages([]);
     setTextInput('');
     setFinalTier(null);
+    setEmergencyActive(false);
+    setEmergencyContacts(null);
     setIsListening(false);
     setFacialDistress(0);
     setDominantEmotion('neutral');
@@ -415,14 +568,15 @@ const AgentChat = () => {
                   <FaceAnalyzer
                     onDistressChange={handleDistressChange}
                     enabled={faceAnalyzerEnabled}
+                    scanMode={isCheckinActive && phase === 'photo'}
                   />
 
-                  {/* Distress meter overlay — top-right of camera */}
+                  {/* Distress meter overlay — top-right of camera, below feed label */}
                   {facialDistress >= 4 && (
                     <motion.div
                       initial={{ opacity: 0, x: 20 }}
                       animate={{ opacity: 1, x: 0 }}
-                      className="absolute top-3 right-3 flex items-center gap-2 bg-black/60 backdrop-blur-sm rounded-full px-3 py-1.5"
+                      className="absolute top-14 right-3 flex items-center gap-2 bg-black/60 backdrop-blur-sm rounded-full px-3 py-1.5"
                     >
                       <div className="h-2 w-20 rounded-full bg-white/20 overflow-hidden">
                         <div
@@ -532,23 +686,39 @@ const AgentChat = () => {
               /* ── STANDARD CHAT LAYOUT (idle / done) ── */
               <>
                 <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
-                  {messages.map((msg, idx) => (
-                    <motion.div
-                      key={idx}
-                      initial={{ opacity: 0, y: 6 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.2 }}
-                      className={`flex flex-col gap-1.5 ${msg.role === 'patient' ? 'items-end' : 'items-start'}`}
-                    >
-                      <div className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
-                        msg.role === 'patient'
-                          ? 'bg-primary text-primary-foreground rounded-br-sm'
-                          : 'bg-muted text-foreground rounded-bl-sm'
-                      }`}>
-                        {msg.content}
-                      </div>
-                    </motion.div>
-                  ))}
+                  {messages.map((msg, idx) => {
+                    let imgUrl = msg.imageUrl;
+                    if (!imgUrl && msg.content && msg.content.includes('/uploads/wounds/')) {
+                      const match = msg.content.match(/\/uploads\/wounds\/[^\s\)]+/);
+                      if (match) imgUrl = match[0];
+                    }
+                    const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+                    const displayImg = imgUrl ? (imgUrl.startsWith('http') || imgUrl.startsWith('blob:') ? imgUrl : `${apiBase}${imgUrl}`) : null;
+                    const cleanContent = cleanQuestionText(msg.content).replace(/\[Uploaded Wound Image\]\([^\)]+\)/g, '📷 Uploaded wound photo');
+
+                    return (
+                      <motion.div
+                        key={idx}
+                        initial={{ opacity: 0, y: 6 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.2 }}
+                        className={`flex flex-col gap-1.5 ${msg.role === 'patient' ? 'items-end' : 'items-start'}`}
+                      >
+                        <div className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
+                          msg.role === 'patient'
+                            ? 'bg-primary text-primary-foreground rounded-br-sm'
+                            : 'bg-muted text-foreground rounded-bl-sm'
+                        }`}>
+                          {displayImg && (
+                            <div className="mb-2 overflow-hidden rounded-xl border border-white/20">
+                              <img src={displayImg} alt="Wound" className="w-full h-auto max-h-48 object-cover" />
+                            </div>
+                          )}
+                          {cleanContent}
+                        </div>
+                      </motion.div>
+                    );
+                  })}
 
                   {(phase === 'starting' || phase === 'submitting') && (
                     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex justify-start">
@@ -602,6 +772,78 @@ const AgentChat = () => {
       </motion.button>
 
       <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={handlePhotoUpload} className="hidden" />
+
+      {/* ── CRITICAL MEDICAL ALERT overlay (full-screen, above everything) ── */}
+      {emergencyActive && createPortal(
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-[9999] bg-black/90 backdrop-blur-sm flex items-center justify-center px-4"
+        >
+          <div className="max-w-md w-full text-center space-y-5">
+            <motion.div
+              animate={{ opacity: [1, 0.25, 1] }}
+              transition={{ repeat: Infinity, duration: 1 }}
+              className="space-y-2"
+            >
+              <div className="text-6xl">🚨</div>
+              <h2 className="text-2xl sm:text-3xl font-black text-red-500 uppercase tracking-wide">
+                {i18n.t('emergency.alertTitle', 'CRITICAL MEDICAL ALERT DETECTED')}
+              </h2>
+            </motion.div>
+
+            <p className="text-white/80 text-sm">
+              {i18n.t(
+                'emergency.alertBody',
+                'Your message indicates a serious health emergency. Please call for help immediately.'
+              )}
+            </p>
+
+            <a
+              href={emergencyContacts?.emergency_contact_phone ? `tel:${emergencyContacts.emergency_contact_phone}` : 'tel:108'}
+              className="flex items-center justify-center gap-2 w-full py-4 rounded-xl bg-red-600 hover:bg-red-700 text-white text-lg font-bold shadow-lg transition-colors"
+            >
+              <Phone size={20} />
+              {i18n.t('emergency.callButton', 'CALL EMERGENCY / AMBULANCE (108)')}
+            </a>
+
+            {(emergencyContacts?.emergency_contact_name || emergencyContacts?.doctor_name) && (
+              <div className="bg-white/10 rounded-xl p-4 text-left text-white/90 text-sm space-y-2">
+                <p className="font-semibold text-white flex items-center gap-2">
+                  <AlertTriangle size={15} className="text-red-400" />
+                  {i18n.t('emergency.contacts', 'Emergency contacts')}
+                </p>
+                {(emergencyContacts?.emergency_contact_name || emergencyContacts?.emergency_contact_phone) && (
+                  <p>
+                    {i18n.t('emergency.caretaker', 'Caretaker')}:{' '}
+                    <span className="font-medium">
+                      {emergencyContacts.emergency_contact_name || '—'}
+                      {emergencyContacts.emergency_contact_phone
+                        ? ` · ${emergencyContacts.emergency_contact_phone}`
+                        : ''}
+                    </span>
+                  </p>
+                )}
+                {(emergencyContacts?.doctor_name || emergencyContacts?.doctor_phone) && (
+                  <p>
+                    {i18n.t('emergency.doctor', 'Doctor')}:{' '}
+                    <span className="font-medium">
+                      {emergencyContacts.doctor_name || '—'}
+                      {emergencyContacts.doctor_phone ? ` · ${emergencyContacts.doctor_phone}` : ''}
+                    </span>
+                  </p>
+                )}
+              </div>
+            )}
+
+            <button onClick={dismissEmergency} className="text-white/50 text-sm underline hover:text-white/80 transition-colors">
+              {i18n.t('emergency.dismiss', "I'm safe — dismiss")}
+            </button>
+          </div>
+        </motion.div>,
+        document.body
+      )}
     </>
   );
 };

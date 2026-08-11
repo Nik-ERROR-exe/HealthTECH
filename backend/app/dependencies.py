@@ -46,6 +46,13 @@ def require_doctor(current_user: User = Depends(get_current_user)) -> User:
     return current_user
 
 
+# Router-level RBAC aliases — used as `APIRouter(dependencies=[...])` so a
+# patient token is structurally blocked from every `/api/doctor/*` route (and
+# vice-versa), not just the endpoints that happen to declare the dependency.
+verify_patient_role = require_patient
+verify_doctor_role = require_doctor
+
+
 def get_current_patient(
     current_user: User = Depends(require_patient),
     db: Session = Depends(get_db),

@@ -67,7 +67,12 @@
     "startCheckin": "Start Check-in",
     "symptomsDesc": "General symptoms & recovery",
     "uploadWound": "Upload Wound Photo",
-    "woundDesc": "Let AI analyze a quick snapshot"
+    "woundDesc": "Let AI analyze a quick snapshot",
+    "resuming": "Resuming your check-in…",
+    "scanInProgress": "AI WOUND SCAN IN PROGRESS...",
+    "analyzingTissue": "ANALYZING TISSUE ERYTHEMA & SWELLING...",
+    "simulatedFeed": "SIMULATED FEED",
+    "woundScanStandby": "AI wound scan standby"
   },
   "patient": {
     "dashboard": "Patient Dashboard",
@@ -121,7 +126,19 @@
     "enableProtection": "Enable Protection",
     "shieldActive": "Shield Active",
     "emergencyAlert": "Impact Detected!",
-    "sos": "SOS"
+    "sos": "SOS",
+    "alertTitle": "CRITICAL MEDICAL EMERGENCY DETECTED",
+    "alertBody": "Your message indicates a serious health emergency. Please call for help immediately.",
+    "callButton": "CALL EMERGENCY SERVICES (108)",
+    "contacts": "Emergency contacts",
+    "caretaker": "Caretaker",
+    "doctor": "Doctor",
+    "dismiss": "I'm safe — dismiss"
+  },
+  "checkin": {
+    "opening": "Opening your check-in…",
+    "resumed": "Your check-in has been resumed — the CARA chat is open.",
+    "ready": "The CARA chat is open. Start your check-in when ready."
   },
   "common": {
     "loading": "Loading...",
@@ -207,7 +224,22 @@
     "swelling": "Swelling",
     "texture": "Texture",
     "selectPatient": "Select a patient to view details",
-    "send": "Send"
+    "send": "Send",
+    "sortByRisk": "Sort by Risk (Highest First)",
+    "filterRedOrange": "Filter RED/ORANGE Only",
+    "allPatients": "All Patients",
+    "readAloud": "Read AI Clinical Summary",
+    "pause": "Pause",
+    "stop": "Stop",
+    "triggerDemo": "Trigger Check-In (1 Min Demo)",
+    "demoTriggered": "Check-in scheduled for 1 minute",
+    "latestAiReport": "Latest AI Report",
+    "noReport": "No AI report available for this check-in.",
+    "schedulePanel": "Schedule Auto Check-In",
+    "triggerIn1Min": "Trigger in 1 Minute (Demo)",
+    "triggerNow": "Trigger Now",
+    "schedule": "Schedule",
+    "scheduled": "check-in scheduled"
   },
   "volunteerDashboard": {
     "title": "Volunteer Dashboard",

@@ -14,6 +14,11 @@ class AgentState(TypedDict):
     course_id:        Optional[str]
     input_type:       str            # VOICE | TEXT | AGENT
     raw_input:        str            # transcribed text or typed text
+    language:         Optional[str]  # session / preferred language code (en|hi|mr)
+
+    # Authoritative structured extraction (Scribe output) for AGENT inputs.
+    # When present + input_type == "AGENT", symptom_agent skips its LLM re-extraction.
+    scribe_data:      Optional[dict]
 
     # ── Symptom Intelligence Agent output ─────────────────────────
     fever_level:          Optional[str]   # normal | low_grade | high | critical

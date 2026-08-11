@@ -56,13 +56,111 @@ If information is not present in the input, use null for that field.
 Return ONLY the JSON object. Nothing else."""
 
 
+def _persist_checkin_fields(
+    check_in_id: str,
+    *,
+    fever_level: str,
+    fatigue_score: int | None,
+    medication_taken: bool | None,
+    medication_time: str | None,
+    symptom_summary: str,
+) -> bool:
+    """
+    Writes the extracted symptom fields onto the check_ins row in its own
+    session. Returns True on success (non-fatal on failure).
+    """
+    db: Session = SessionLocal()
+    try:
+        check_in = db.query(CheckIn).filter(CheckIn.id == check_in_id).first()
+        if not check_in:
+            logger.warning(f"[SymptomAgent] check_in {check_in_id} not found in DB")
+            return False
+        check_in.fever_level              = fever_level
+        check_in.fatigue_score            = fatigue_score
+        check_in.medication_taken         = medication_taken
+        check_in.medication_time_reported = medication_time
+        check_in.symptom_summary          = symptom_summary
+        db.commit()
+        return True
+    except Exception as e:
+        db.rollback()
+        logger.error(f"[SymptomAgent] DB write failed: {e}")
+        return False
+    finally:
+        db.close()
+
+
+def _apply_scribe_to_state(state: AgentState, scribe: dict, errors: list) -> AgentState:
+    """
+    AGENT-input short-circuit: the Scribe already extracted the structured data,
+    so symptom_agent just normalizes + persists it instead of re-running the LLM.
+    Best-effort — every value is sanitized to the same invariants as the LLM path.
+    """
+    fever = str(scribe.get("fever_level") or "unknown").lower()
+    if fever not in {"normal", "low_grade", "high", "critical", "unknown"}:
+        fever = "unknown"
+
+    fatigue = scribe.get("fatigue_score")
+    if fatigue is not None:
+        try:
+            fatigue = max(1, min(10, int(fatigue)))
+        except (TypeError, ValueError):
+            fatigue = None
+
+    med = scribe.get("medication_taken")
+    med_bool = None
+    if isinstance(med, bool):
+        med_bool = med
+    elif isinstance(med, str):
+        t = med.strip().lower()
+        if t in ("true", "yes", "taken", "all taken", "1"):
+            med_bool = True
+        elif t in ("false", "no", "missed", "0"):
+            med_bool = False
+
+    med_time = scribe.get("medication_time") or None
+    summary  = str(scribe.get("symptom_summary") or "").strip() or "No symptoms reported."
+    llm_score = float(scribe.get("symptom_severity_score") or 0.0)
+    llm_score = max(0.0, min(10.0, llm_score))
+
+    if not _persist_checkin_fields(
+        state["check_in_id"],
+        fever_level=fever,
+        fatigue_score=fatigue,
+        medication_taken=med_bool,
+        medication_time=med_time,
+        symptom_summary=summary,
+    ):
+        errors.append("SymptomAgent DB write failed (scribe path)")
+
+    logger.info(f"[SymptomAgent] Used Scribe output — skipped LLM extraction (patient {state['patient_id']})")
+    return {
+        **state,
+        "fever_level":      fever,
+        "fatigue_score":    fatigue,
+        "medication_taken": med_bool,
+        "medication_time":  med_time,
+        "symptom_summary":  summary,
+        "symptom_llm_score": llm_score,
+        "errors":           errors,
+    }
+
+
 async def symptom_agent_node(state: AgentState) -> AgentState:
     """
     Extracts structured health data from patient raw input using NVIDIA LLM.
     Updates the check_ins table with extracted values.
+
+    For AGENT inputs the Scribe has already extracted this data (`scribe_data`),
+    so the LLM call is skipped entirely (saves metered free-tier credits).
     """
     logger.info(f"[SymptomAgent] Starting for patient {state['patient_id']}")
     errors = list(state.get("errors", []))
+
+    # ── Scribe short-circuit (AGENT inputs only) ─────────────────────────
+    scribe = state.get("scribe_data") or {}
+    if state.get("input_type") == "AGENT" and scribe:
+        return _apply_scribe_to_state(state, scribe, errors)
 
     raw_input = state.get("raw_input", "").strip()
 
@@ -131,28 +229,17 @@ async def symptom_agent_node(state: AgentState) -> AgentState:
     symptom_llm_score = max(0.0, min(10.0, symptom_llm_score))
 
     # ── Persist to check_ins table ───────────────────────────────
-    db: Session = SessionLocal()
-    try:
-        check_in = db.query(CheckIn).filter(
-            CheckIn.id == state["check_in_id"]
-        ).first()
-
-        if check_in:
-            check_in.fever_level             = fever_level
-            check_in.fatigue_score           = fatigue_score
-            check_in.medication_taken        = medication_taken
-            check_in.medication_time_reported = medication_time
-            check_in.symptom_summary         = symptom_summary
-            db.commit()
-            logger.info(f"[SymptomAgent] check_in {state['check_in_id']} updated in DB")
-        else:
-            logger.warning(f"[SymptomAgent] check_in {state['check_in_id']} not found in DB")
-    except Exception as e:
-        db.rollback()
-        logger.error(f"[SymptomAgent] DB write failed: {e}")
-        errors.append(f"SymptomAgent DB write failed: {e}")
-    finally:
-        db.close()
+    if _persist_checkin_fields(
+        state["check_in_id"],
+        fever_level=fever_level,
+        fatigue_score=fatigue_score,
+        medication_taken=medication_taken,
+        medication_time=medication_time,
+        symptom_summary=symptom_summary,
+    ):
+        logger.info(f"[SymptomAgent] check_in {state['check_in_id']} updated in DB")
+    else:
+        errors.append(f"SymptomAgent DB write failed: {state['check_in_id']}")
 
     return {
         **state,

@@ -18,6 +18,17 @@ import os
 
 # ── Email via Brevo ───────────────────────────────────────────────
 
+def _resolve_outbound_email(to_email: str) -> str:
+    """
+    Hackathon demo override: when DEMO_EMERGENCY_EMAIL is configured, ALL outbound
+    emails route to that single inbox (so the presenter sees every patient/doctor
+    alert in one place). Falls back to the real recipient when unset.
+    """
+    if settings.DEMO_EMERGENCY_EMAIL:
+        return settings.DEMO_EMERGENCY_EMAIL
+    return to_email
+
+
 async def send_email_alert(
     to_email: str,
     to_name:  str,
@@ -30,6 +41,11 @@ async def send_email_alert(
     Sends a transactional email via Brevo (formerly Sendinblue).
     Returns True on success, False on failure.
     """
+    resolved = _resolve_outbound_email(to_email)
+    if resolved != to_email:
+        logger.info(f"[AlertService] DEMO override: email to {to_email} → {resolved}")
+    to_email = resolved
+
     try:
         configuration              = sib_api_v3_sdk.Configuration()
         configuration.api_key["api-key"] = settings.BREVO_API_KEY

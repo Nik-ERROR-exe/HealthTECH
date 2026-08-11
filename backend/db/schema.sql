@@ -88,9 +88,16 @@ CREATE TABLE patient_profiles (
     emergency_contact_email  VARCHAR(255),
     profile_picture_url      VARCHAR(500),
     allow_agent_mic_control  BOOLEAN NOT NULL DEFAULT TRUE,
+    preferred_language       VARCHAR(10) NOT NULL DEFAULT 'en',
+    social_memory            JSON,
     created_at               TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at               TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Live Neon migration (create_all() never alters existing tables):
+--   ALTER TABLE patient_profiles
+--     ADD COLUMN IF NOT EXISTS preferred_language VARCHAR(10) NOT NULL DEFAULT 'en',
+--     ADD COLUMN IF NOT EXISTS social_memory JSON;
 
 -- ─────────────────────────────────────────────
 -- 4. TABLE 3: doctor_profiles

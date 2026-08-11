@@ -1,15 +1,18 @@
 """
-Node 2 — Vision Analysis Agent (Hugging Face LLM + OpenCV fallback)
-Analyzes a wound photo using Hugging Face Inference API (accurate classification).
-If API fails, falls back to classical OpenCV heuristics.
+Node 2 — Vision Analysis Agent (NVIDIA VLM + OpenCV fallback)
+Analyzes a wound photo using an NVIDIA multimodal VLM (OpenAI-compatible
+`/chat/completions`, base64 image payload). If the VLM is unreachable (no key,
+wrong endpoint, timeout), falls back to the local OpenCV heuristics pipeline.
 
 Maintains full compatibility with existing AgentState and database schema.
 """
+import base64
 import logging
-import requests
+from pathlib import Path
+
 import cv2
 import numpy as np
-from pathlib import Path
+from openai import AsyncOpenAI
 from sqlalchemy.orm import Session
 
 from app.agents.state import AgentState
@@ -20,69 +23,122 @@ from app.models.models import WoundAnalysis, WoundSeverity, MedicalCourse
 
 logger = logging.getLogger(__name__)
 
-# Hugging Face configuration (free tier — paste key into backend/.env)
-HUGGINGFACE_API_KEY = settings.HUGGINGFACE_API_KEY
-MODEL_ID = "davidfred/vit_skin_disease_model" # Good for wound classification
-API_URL = f"https://api-inference.huggingface.co/models/{MODEL_ID}"
-HEADERS = {"Authorization": f"Bearer {HUGGINGFACE_API_KEY}"}
+# NVIDIA vision models are served on ai.api.nvidia.com; integrate.api.nvidia.com
+# is the text-only endpoint. We try the configured base first, then this one.
+_VISION_ALT_BASE = "https://ai.api.nvidia.com/v1"
+
+_LANGUAGE_RULE = (
+    " CRITICAL LANGUAGE RULE: You MUST reply ONLY in the requested language "
+    "code: '{language}'. Never default to French, Spanish, or any other language."
+)
 
 
-# ─────────────────────────────────────────────────────────────
-# Hugging Face API call (accurate classification)
-# ─────────────────────────────────────────────────────────────
-def classify_with_huggingface(image_path: str) -> dict:
-    """Call Hugging Face Inference API. Returns severity score (0‑10) and status."""
-    if not HUGGINGFACE_API_KEY:
-        logger.warning("HUGGINGFACE_API_KEY not set – using OpenCV fallback")
+# ─────────────────────────────────────────────
+# NVIDIA multimodal VLM (primary engine)
+# ─────────────────────────────────────────────
+_VLM_SYSTEM_PROMPT = (
+    "You are a clinical wound assessment assistant. Analyze this post-surgical "
+    "image for signs of erythema (redness), surgical site swelling, abnormal "
+    "discharge/pus, and incision dehiscence. Provide a concise 2-sentence "
+    "clinical summary and rate visual severity as LOW, MEDIUM, or HIGH."
+)
+
+
+def _vlm_system_prompt(language: str) -> str:
+    """VLM system prompt pinned to the patient's language (no FR/ES drift)."""
+    return _VLM_SYSTEM_PROMPT + _LANGUAGE_RULE.format(language=language)
+
+
+def _parse_vlm_result(text: str) -> dict:
+    """Map the VLM's free-text response to the canonical result shape."""
+    t = (text or "").strip()[:300]
+    up = t.upper()
+    if "HIGH" in up:
+        severity, status = 8.0, "SEVERE"
+    elif "LOW" in up:
+        severity, status = 1.0, "NORMAL"
+    else:
+        severity, status = 5.0, "MODERATE"
+    return {
+        "score": severity,
+        "status": status,
+        "summary": t or "NVIDIA VLM returned no summary.",
+        "raw_response": text or "",
+    }
+
+
+async def classify_with_nvidia_vlm(image_path: str, language: str = "en") -> dict | None:
+    """
+    Classify a wound image with the NVIDIA multimodal VLM. Tries the configured
+    base URL (default NVIDIA_BASE_URL = integrate), then auto-retries the NVIDIA
+    vision endpoint (ai.api.nvidia.com/v1). Returns None on any failure so the
+    caller falls back to the local OpenCV pipeline (never fatal).
+    """
+    if not settings.NVIDIA_API_KEY:
+        logger.warning("[VisionAgent] NVIDIA_API_KEY not set — using OpenCV fallback")
         return None
 
+    # Encode the image as a base64 data URI
+    ext = Path(image_path).suffix.lower()
+    mime = {
+        "": "image/jpeg", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+        ".png": "image/png", ".webp": "image/webp",
+    }.get(ext, "image/jpeg")
     try:
         with open(image_path, "rb") as f:
-            image_data = f.read()
-        response = requests.post(API_URL, headers=HEADERS, data=image_data, timeout=30)
-        if response.status_code != 200:
-            logger.error(f"HuggingFace API error: {response.status_code}")
-            return None
-
-        result = response.json()
-        if isinstance(result, list) and len(result) > 0:
-            top = result[0]
-            label = top.get("label", "unknown")
-            confidence = top.get("score", 0.0)
-        else:
-            return None
-
-        # Map label to severity (adjust based on actual model output)
-        label_lower = label.lower()
-        if any(k in label_lower for k in ["malignant", "melanoma", "severe", "dangerous"]):
-            severity_score = 8.5
-            status = "SEVERE"
-        elif any(k in label_lower for k in ["moderate", "infection", "cellulitis"]):
-            severity_score = 5.5
-            status = "MODERATE"
-        elif any(k in label_lower for k in ["normal", "benign", "healthy"]):
-            severity_score = 1.0
-            status = "NORMAL"
-        else:
-            severity_score = 3.0
-            status = "MODERATE"
-
-        return {
-            "score": round(severity_score, 1),
-            "status": status,
-            "summary": f"AI analysis: {label} (confidence {confidence:.2f})",
-            "raw_response": f"{label}: {confidence}",
-        }
-    except Exception as e:
-        logger.error(f"HuggingFace client error: {e}")
+            b64 = base64.b64encode(f.read()).decode("utf-8")
+    except Exception as exc:
+        logger.warning(f"[VisionAgent] Could not read image for VLM: {exc}")
         return None
+    data_uri = f"data:{mime};base64,{b64}"
+
+    configured = settings.VISION_BASE_URL or settings.NVIDIA_BASE_URL
+    bases: list[str] = []
+    for base in (configured, _VISION_ALT_BASE):
+        if base and base not in bases:
+            bases.append(base)
+
+    messages = [
+        {"role": "system", "content": _vlm_system_prompt(language)},
+        {"role": "user", "content": [
+            {
+                "type": "text",
+                "text": (
+                    "Assess this post-surgical wound image and give a concise "
+                    "2-sentence clinical summary plus a severity rating of "
+                    "LOW, MEDIUM, or HIGH."
+                ),
+            },
+            {"type": "image_url", "image_url": {"url": data_uri}},
+        ]},
+    ]
+
+    for base in bases:
+        try:
+            client = AsyncOpenAI(base_url=base, api_key=settings.NVIDIA_API_KEY)
+            resp = await client.chat.completions.create(
+                model=settings.VISION_LLM_MODEL,
+                messages=messages,
+                max_tokens=300,
+                temperature=0.2,
+                timeout=15.0,
+            )
+            text = (resp.choices[0].message.content or "").strip()
+            if text:
+                logger.info(f"[VisionAgent] NVIDIA VLM success via {base}")
+                return _parse_vlm_result(text)
+        except Exception as exc:
+            logger.warning(f"[VisionAgent] NVIDIA VLM failed on {base}: {exc}")
+
+    logger.info("[VisionAgent] NVIDIA VLM unavailable, engaging OpenCV local pipeline")
+    return None
 
 
-# ─────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────
 # OpenCV fallback (your original logic, slightly polished)
-# ─────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────
 def analyze_with_opencv(image_path: str) -> dict:
-    """Original OpenCV‑based analysis – used when Hugging Face fails."""
+    """Original OpenCV‑based analysis – used when the VLM is unavailable."""
     img = cv2.imread(image_path)
     if img is None:
         raise ValueError(f"Could not load image: {image_path}")
@@ -154,9 +210,6 @@ def analyze_with_opencv(image_path: str) -> dict:
     }
 
 
-# ─────────────────────────────────────────────────────────────
-# Main agent node (same interface as before)
-# ─────────────────────────────────────────────────────────────
 # ─────────────────────────────────────────────
 # Patient-facing AI advice (NVIDIA LLM + RAG guideline, static fallback)
 # ─────────────────────────────────────────────
@@ -166,6 +219,11 @@ _ADVICE_SYSTEM_PROMPT = (
     "tips and the specific signs to watch for. Do NOT alarm the patient. "
     "Keep it under 120 words, warm and clear."
 )
+
+
+def _advice_system_prompt(language: str) -> str:
+    """System prompt for the wound-advice LLM, pinned to the patient's language."""
+    return _ADVICE_SYSTEM_PROMPT + _LANGUAGE_RULE.format(language=language)
 
 
 def _static_advice(severity: str, score: float) -> str:
@@ -220,7 +278,7 @@ async def generate_ai_advice(
         resp = await llm_client.chat.completions.create(
             model=LLM_MODEL,
             messages=[
-                {"role": "system", "content": _ADVICE_SYSTEM_PROMPT + f" Respond in '{language}'."},
+                {"role": "system", "content": _advice_system_prompt(language)},
                 {"role": "user", "content": context},
             ],
             temperature=settings.LLM_TEMPERATURE,
@@ -233,6 +291,9 @@ async def generate_ai_advice(
         return _static_advice(result.get("status", "NORMAL"), result.get("score", 0.0))
 
 
+# ─────────────────────────────────────────────
+# Main agent node (same interface as before)
+# ─────────────────────────────────────────────
 async def vision_agent_node(state: AgentState) -> AgentState:
     logger.info(f"[VisionAgent] Starting analysis for patient {state['patient_id']}")
     errors = list(state.get("errors", []))
@@ -251,15 +312,28 @@ async def vision_agent_node(state: AgentState) -> AgentState:
             "errors": errors,
         }
 
-    # 1) Try Hugging Face API
-    result = classify_with_huggingface(wound_path)
+    # 1) Primary: NVIDIA multimodal VLM (in the session's language)
+    result = await classify_with_nvidia_vlm(
+        wound_path, language=state.get("language") or "en"
+    )
     if result:
-        logger.info(f"[VisionAgent] HuggingFace success: {result['summary']}")
+        logger.info(f"[VisionAgent] NVIDIA VLM success: {result['summary']}")
     else:
-        # 2) Fallback to OpenCV
-        logger.warning("[VisionAgent] HuggingFace failed, using OpenCV fallback")
-        result = analyze_with_opencv(wound_path)
-        errors.append("Used OpenCV fallback for wound analysis")
+        # 2) Fallback: OpenCV — guard against unreadable/corrupt images so the
+        #    node never crashes (degrading the whole check-in to GREEN).
+        try:
+            result = analyze_with_opencv(wound_path)
+        except Exception as exc:
+            logger.warning(f"[VisionAgent] OpenCV fallback failed: {exc}")
+            result = {
+                "status": "NORMAL",
+                "score": 0.0,
+                "summary": "Wound image could not be analyzed.",
+                "raw_response": "",
+            }
+            errors.append("OpenCV wound analysis failed")
+        else:
+            errors.append("Used OpenCV fallback for wound analysis")
 
     severity_str = result["status"]
     try:
@@ -279,7 +353,11 @@ async def vision_agent_node(state: AgentState) -> AgentState:
     except Exception as e:
         logger.warning(f"[VisionAgent] Could not load patient context: {e}")
 
-    advice = await generate_ai_advice(result, patient_context=patient_context)
+    advice = await generate_ai_advice(
+        result,
+        patient_context=patient_context,
+        language=state.get("language") or "en",
+    )
 
     # Persist to database
     wound_analysis_id = None

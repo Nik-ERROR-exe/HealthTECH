@@ -93,11 +93,21 @@ async def run_agent_pipeline(
     course_id:        str | None = None,
     has_wound_image:  bool = False,
     wound_image_path: str | None = None,
+    scribe_data:      dict | None = None,
+    language:         str = "en",
 ) -> AgentState:
     """
     Main entry point called by the API layer.
     Builds initial state and invokes the full agent graph.
     Returns the final AgentState after all nodes have run.
+
+    `scribe_data` is the Scribe's authoritative structured extraction (AGENT
+    inputs); when present, symptom_agent skips its redundant LLM pass. TEXT /
+    VOICE inputs pass None and keep the existing behaviour.
+
+    `language` is the session / patient's preferred language (en|hi|mr); it is
+    carried in state so patient-facing outputs (e.g. vision wound advice) are
+    generated in that language.
     """
     initial_state: AgentState = {
         # Input
@@ -106,6 +116,8 @@ async def run_agent_pipeline(
         "course_id":        course_id,
         "input_type":       input_type,
         "raw_input":        raw_input,
+        "scribe_data":      scribe_data,
+        "language":         language,
 
         # Wound image
         "has_wound_image":  has_wound_image,

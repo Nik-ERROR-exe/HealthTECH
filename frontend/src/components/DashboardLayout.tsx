@@ -1,6 +1,7 @@
 import { ReactNode } from 'react';
 import Navbar from './Navbar';
 import AgentChat from './AgentChat';
+import PatientCheckinListener from './PatientCheckinListener';
 import { getUser } from '@/lib/auth';
 
 interface Props {
@@ -18,6 +19,7 @@ const DashboardLayout = ({ children }: Props) => {
         {children}
       </main>
       {isPatient && <AgentChat />}
+      {isPatient && <PatientCheckinListener />}
     </div>
   );
 };

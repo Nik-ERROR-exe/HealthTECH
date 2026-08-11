@@ -220,13 +220,10 @@ const PatientDashboard = () => {
     try {
       toast.info('Analyzing wound photo...');
       const res = await conversationApi.dashboardUploadWound(file);
-      if (res.data.status === 'success' || res.data.check_in_id) {
-        toast.success(res.data.ai_advice || res.data.friendly_message || 'Wound analysis complete!');
-        fetchDashboard();
-        fetchWoundHistory();
-      } else {
-        toast.success('Photo uploaded successfully.');
-      }
+      toast.success(res.data.ai_advice || res.data.summary || 'Wound analysis complete!');
+      fetchDashboard();
+      fetchWoundHistory();
+      window.dispatchEvent(new CustomEvent('carenetra:open-agent-chat', { detail: res.data }));
     } catch (err: any) {
       toast.error(err.response?.data?.detail || 'Failed to upload photo');
     } finally {

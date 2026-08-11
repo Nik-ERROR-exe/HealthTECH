@@ -103,6 +103,10 @@ class SendMessageRequest(BaseModel):
     message:    str
 
 
+class ScheduleCheckinRequest(BaseModel):
+    next_check_in_at: str    # ISO 8601 timestamp (assumed UTC if naive)
+
+
 class CourseModifyRequest(BaseModel):
     course_id:         str
     notes_for_patient: Optional[str]          = None

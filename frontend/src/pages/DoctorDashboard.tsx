@@ -1,10 +1,10 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Users, AlertTriangle, Search, Activity, TrendingUp, Clock, Pill,
   Loader2, Send, Plus, X, ChevronRight, UserSearch, BookOpen, Check, Camera,
   Bell, Sparkles, TrendingDown, Heart, Zap, Brain, PieChart as PieChartIcon,
-  Calendar, Filter
+  Calendar, Filter, Volume2, Pause, Square
 } from 'lucide-react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -16,7 +16,7 @@ import DashboardLayout from '@/components/DashboardLayout';
 import EmergencyBanner from '@/components/EmergencyBanner';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
-import api from '@/lib/api';
+import api, { doctorApi } from '@/lib/api';
 import Lenis from '@studio-freight/lenis';
 
 // ===== Types (same as backend) =====
@@ -72,6 +72,7 @@ interface PatientDetail {
     symptom_summary: string | null;
     total_score: number | null;
     tier: string | null;
+    agent_report?: string | null;
   }>;
   medications: Array<{
     id: string; name: string; dosage: string;
@@ -191,6 +192,11 @@ const DoctorDashboard = () => {
   const [detail, setDetail] = useState<PatientDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [search, setSearch] = useState('');
+  const [listFilter, setListFilter] = useState<'highest_risk' | 'red_orange' | 'all'>('highest_risk');
+  const [speaking, setSpeaking] = useState(false);
+  const speechRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const [schedulingId, setSchedulingId] = useState<string | null>(null);
+  const [customTime, setCustomTime] = useState('');
   const [messageText, setMessageText] = useState('');
   const [sendingMsg, setSendingMsg] = useState(false);
   const [showAddPanel, setShowAddPanel] = useState(false);
@@ -300,10 +306,135 @@ const DoctorDashboard = () => {
     try { await api.post(`/doctor/courses/${selectedCourseId}/assign`, { patient_unique_uid: foundPatient.unique_uid }); toast.success(`Course assigned to ${foundPatient.full_name}!`); setAddPanelStep('done'); setTimeout(() => { fetchDashboard(); closeAddPanel(); }, 1500); } catch (err: any) { toast.error(err.response?.data?.detail || 'Assignment failed'); } finally { setAssigning(false); }
   };
 
-  const filteredPatients = dashData?.patients?.filter(p =>
+  // ── Read-aloud (Web Speech API) ───────────────────────────────────────────
+  const getLanguageCode = (lang: string): string => {
+    const map: Record<string, string> = { en: 'en-US', hi: 'hi-IN', mr: 'mr-IN' };
+    return map[lang?.split('-')[0] || 'en'] || 'en-US';
+  };
+
+  const cleanTextForSpeech = (markdownText: string) => {
+    return markdownText
+      .replace(/\*\*/g, '') // Remove bold markers
+      .replace(/\*/g, '')   // Remove italic markers
+      .replace(/#/g, '')    // Remove headings
+      .replace(/-\s+/g, '') // Remove bullet points
+      .trim();
+  };
+
+  const buildClinicalSummary = (): string => {
+    const latestCheckin = detail?.recent_check_ins?.[0];
+    const tierLabel = detail?.latest_risk_score?.tier || 'GREEN';
+    let dayPart = '';
+    if (detail?.course?.start_date) {
+      const start = new Date(detail.course.start_date);
+      if (!isNaN(start.getTime())) {
+        const day = Math.max(1, Math.floor((Date.now() - start.getTime()) / 86400000) + 1);
+        dayPart = ` Recovery day ${day} post ${detail.course.condition?.replace(/_/g, ' ') || 'surgery'}.`;
+      }
+    }
+    const woundPart = detail?.recent_wounds?.[0]
+      ? ` Wound analysis: ${detail.recent_wounds[0].summary}.`
+      : '';
+    return [
+      `Patient ${detail?.full_name || 'this patient'}.`,
+      dayPart,
+      ` Current risk level is ${tierLabel}.`,
+      ` Key warning flags: ${latestCheckin?.symptom_summary || 'no new symptoms reported'}.`,
+      woundPart,
+      ` Doctor narrative: ${latestCheckin?.agent_report || 'no AI report available yet.'}`,
+    ].join('');
+  };
+
+  const handleReadAiClinicalSummary = () => {
+    if (!('speechSynthesis' in window)) {
+      toast.error('Text-to-speech is not supported in this browser.');
+      return;
+    }
+
+    if (speaking) {
+      window.speechSynthesis.cancel();
+      setSpeaking(false);
+      return;
+    }
+
+    const latestCheckin = detail?.recent_check_ins?.[0];
+    const reportText = latestCheckin?.agent_report || latestCheckin?.symptom_summary || buildClinicalSummary();
+    const cleanedText = cleanTextForSpeech(reportText);
+
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(cleanedText);
+    utterance.lang = getLanguageCode(i18n.resolvedLanguage || i18n.language || 'en');
+    utterance.rate = 0.95;
+    utterance.pitch = 1.0;
+    utterance.onend = () => setSpeaking(false);
+    utterance.onerror = () => setSpeaking(false);
+    speechRef.current = utterance;
+    window.speechSynthesis.speak(utterance);
+    setSpeaking(true);
+  };
+
+  const togglePauseAloud = () => {
+    if (!('speechSynthesis' in window)) return;
+    if (window.speechSynthesis.paused) {
+      window.speechSynthesis.resume();
+      setSpeaking(true);
+    } else {
+      window.speechSynthesis.pause();
+      setSpeaking(false);
+    }
+  };
+
+  const stopAloud = () => {
+    if (!('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel();
+    setSpeaking(false);
+  };
+
+  // ── Doctor-controlled check-in scheduling ───────────────────────────────
+  const handleScheduleCheckin = async (patientId: string, iso: string, label: string) => {
+    setSchedulingId(patientId);
+    try {
+      await doctorApi.scheduleCheckin(patientId, iso);
+      toast.success(`${label} — ${t('doctorDashboard.scheduled', 'check-in scheduled')}`);
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Failed to schedule check-in');
+    } finally {
+      setSchedulingId(null);
+    }
+  };
+
+  const scheduleInMinutes = (patientId: string, name: string, minutes: number, label: string) =>
+    handleScheduleCheckin(patientId, new Date(Date.now() + minutes * 60_000).toISOString(), label);
+
+  const scheduleCustomTime = (patientId: string, name: string) => {
+    if (!customTime) {
+      toast.error('Pick a date & time first');
+      return;
+    }
+    handleScheduleCheckin(patientId, new Date(customTime).toISOString(), t('doctorDashboard.scheduled', 'check-in scheduled'));
+    setCustomTime('');
+  };
+
+  // ── Patient list: search + sort/filter ───────────────────────────────────
+  const tierRank: Record<string, number> = { EMERGENCY: 0, RED: 1, ORANGE: 2, YELLOW: 3, GREEN: 4 };
+
+  const filteredPatients = (dashData?.patients?.filter(p =>
     p.full_name.toLowerCase().includes(search.toLowerCase()) ||
     p.unique_uid.toLowerCase().includes(search.toLowerCase())
-  ) || [];
+  ) || []);
+
+  const sortedPatients = useMemo(() => {
+    let list = filteredPatients;
+    if (listFilter === 'red_orange') {
+      list = list.filter(p => ['EMERGENCY', 'RED', 'ORANGE'].includes(p.tier || ''));
+    }
+    if (listFilter === 'highest_risk') {
+      list = [...list].sort(
+        (a, b) => (tierRank[a.tier || 'GREEN'] ?? 5) - (tierRank[b.tier || 'GREEN'] ?? 5)
+      );
+    }
+    return list;
+  }, [filteredPatients, listFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const overallAdherence = useMemo(() => dashData ? 82 : 0, [dashData]);
   const symptomSeverityData = useMemo(() => {
@@ -482,20 +613,42 @@ const DoctorDashboard = () => {
                 <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                 <input value={search} onChange={e => setSearch(e.target.value)} placeholder={t('doctorDashboard.searchAssigned')} className="w-full pl-9 pr-4 py-2 rounded-xl bg-muted/50 border border-border text-sm focus:ring-2 focus:ring-primary/30" />
               </div>
+              <div className="relative mb-3">
+                <Filter size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                <select
+                  value={listFilter}
+                  onChange={e => setListFilter(e.target.value as typeof listFilter)}
+                  className="w-full appearance-none pl-9 pr-8 py-2 rounded-xl bg-muted/50 border border-border text-sm text-foreground focus:ring-2 focus:ring-primary/30 cursor-pointer"
+                >
+                  <option value="highest_risk">{t('doctorDashboard.sortByRisk')}</option>
+                  <option value="red_orange">{t('doctorDashboard.filterRedOrange')}</option>
+                  <option value="all">{t('doctorDashboard.allPatients')}</option>
+                </select>
+                <ChevronRight size={14} className="absolute right-3 top-1/2 -translate-y-1/2 rotate-90 text-muted-foreground pointer-events-none" />
+              </div>
               <div className="flex-1 space-y-1.5 overflow-y-auto max-h-[calc(100vh-420px)]">
-                {filteredPatients.map(p => (
-                  <button key={p.patient_id} onClick={() => handleSelectPatient(p.patient_id)} className={`w-full text-left p-3 rounded-xl transition-all ${selectedPatientId === p.patient_id ? 'bg-primary/10 border border-primary/30 shadow-sm' : 'hover:bg-muted/50 border border-transparent'}`}>
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center text-sm font-bold text-foreground">{p.full_name.split(' ').map(n=>n[0]).join('')}</div>
+                {sortedPatients.map(p => (
+                  <div key={p.patient_id} className={`flex items-center gap-2 p-2.5 rounded-xl transition-all border ${selectedPatientId === p.patient_id ? 'bg-primary/10 border-primary/30 shadow-sm' : 'hover:bg-muted/50 border-transparent'}`}>
+                    <button onClick={() => handleSelectPatient(p.patient_id)} className="flex items-center gap-3 flex-1 min-w-0 text-left">
+                      <div className="w-10 h-10 shrink-0 rounded-xl bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center text-sm font-bold text-foreground">{p.full_name.split(' ').map(n=>n[0]).join('')}</div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium truncate">{p.full_name}</p>
                         <p className="text-[11px] text-muted-foreground truncate">{p.condition_type?.replace(/_/g,' ')}</p>
                       </div>
-                      <RiskBadge score={p.total_score} tier={p.tier ?? undefined} />
-                    </div>
-                  </button>
+                    </button>
+                    <RiskBadge score={p.total_score} tier={p.tier ?? undefined} />
+                    <button
+                      onClick={(e) => { e.stopPropagation(); scheduleInMinutes(p.patient_id, p.full_name, 1, t('doctorDashboard.triggerDemo')); }}
+                      disabled={schedulingId === p.patient_id}
+                      title={t('doctorDashboard.triggerDemo')}
+                      className="flex items-center gap-1 shrink-0 px-2.5 py-1.5 rounded-lg text-[11px] font-medium bg-amber-500/10 text-amber-500 border border-amber-500/30 hover:bg-amber-500/20 disabled:opacity-50 transition-colors"
+                    >
+                      {schedulingId === p.patient_id ? <Loader2 size={12} className="animate-spin" /> : <Zap size={12} />}
+                      <span className="hidden xl:inline">{t('doctorDashboard.triggerDemo')}</span>
+                    </button>
+                  </div>
                 ))}
-                {filteredPatients.length === 0 && (
+                {sortedPatients.length === 0 && (
                   <div className="text-center py-8 space-y-2">
                     <p className="text-sm text-muted-foreground">{t('doctorDashboard.noPatientsAssigned')}</p>
                     <button onClick={() => navigate('/doctor/create-course')} className="text-xs text-primary hover:underline flex items-center gap-1 mx-auto"><Plus size={11} /> {t('doctorDashboard.createFirstCourse')}</button>
@@ -519,7 +672,48 @@ const DoctorDashboard = () => {
                           <p className="text-sm text-muted-foreground">{detail.course?.condition?.replace(/_/g,' ')} · <span className="font-mono">{detail.unique_uid}</span></p>
                         </div>
                       </div>
-                      <RiskBadge score={detail.latest_risk_score?.total_score ?? 0} tier={detail.latest_risk_score?.tier ?? undefined} />
+                      <div className="flex flex-col items-end gap-2">
+                        <RiskBadge score={detail.latest_risk_score?.total_score ?? 0} tier={detail.latest_risk_score?.tier ?? undefined} />
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={handleReadAiClinicalSummary}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                              speaking
+                                ? 'bg-destructive/10 text-destructive border-destructive/30 hover:bg-destructive/20'
+                                : 'bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20'
+                            }`}
+                          >
+                            {speaking ? (
+                              <>
+                                <span>⏹️</span> Stop Reading
+                              </>
+                            ) : (
+                              <>
+                                <span>🔊</span> Read AI Clinical Summary
+                              </>
+                            )}
+                          </button>
+                          {speaking && (
+                            <div className="flex items-center gap-1">
+                              <span className="flex items-end gap-0.5 h-4 px-1" aria-label="speaking">
+                                {[0, 1, 2, 3].map(i => (
+                                  <span
+                                    key={i}
+                                    className="w-0.5 h-full rounded-full bg-primary animate-pulse"
+                                    style={{ transformOrigin: 'bottom', animation: `carenetra-wave 0.9s ease-in-out ${i * 0.12}s infinite alternate` }}
+                                  />
+                                ))}
+                              </span>
+                              <button onClick={togglePauseAloud} className="p-1.5 rounded-lg text-xs bg-muted text-muted-foreground hover:bg-muted/70 transition-colors">
+                                <Pause size={13} />
+                              </button>
+                              <button onClick={stopAloud} className="p-1.5 rounded-lg text-xs bg-destructive/10 text-destructive hover:bg-destructive/20 transition-colors">
+                                <Square size={13} />
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
                     </div>
                     {detail.course && (
                       <div className="mt-4 pt-4 border-t border-border/50 grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
@@ -529,6 +723,45 @@ const DoctorDashboard = () => {
                         <div><span className="text-muted-foreground">Last Check-in</span><p className="font-medium">{detail.recent_check_ins?.[0] ? new Date(detail.recent_check_ins[0].created_at).toLocaleDateString() : 'Never'}</p></div>
                       </div>
                     )}
+
+                    <div className="mt-4 pt-4 border-t border-border/50 flex flex-wrap items-end gap-3">
+                      <div>
+                        <p className="text-xs text-muted-foreground mb-1.5">⚡ {t('doctorDashboard.schedulePanel')}</p>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            onClick={() => scheduleInMinutes(detail.patient_id, detail.full_name, 1, t('doctorDashboard.triggerIn1Min'))}
+                            disabled={schedulingId === detail.patient_id}
+                            className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-500/10 text-amber-500 border border-amber-500/30 hover:bg-amber-500/20 disabled:opacity-50 transition-colors"
+                          >
+                            {schedulingId === detail.patient_id ? <Loader2 size={12} className="animate-spin" /> : <Zap size={12} />}
+                            {t('doctorDashboard.triggerIn1Min')}
+                          </button>
+                          <button
+                            onClick={() => handleScheduleCheckin(detail.patient_id, new Date().toISOString(), t('doctorDashboard.triggerNow'))}
+                            disabled={schedulingId === detail.patient_id}
+                            className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20 disabled:opacity-50 transition-colors"
+                          >
+                            <Zap size={12} />
+                            {t('doctorDashboard.triggerNow')}
+                          </button>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="datetime-local"
+                          value={customTime}
+                          onChange={e => setCustomTime(e.target.value)}
+                          className="px-3 py-1.5 rounded-lg bg-muted/50 border border-border text-xs text-foreground focus:ring-2 focus:ring-primary/30"
+                        />
+                        <button
+                          onClick={() => scheduleCustomTime(detail.patient_id, detail.full_name)}
+                          disabled={schedulingId === detail.patient_id || !customTime}
+                          className="px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-500/10 text-emerald-500 border border-emerald-500/30 hover:bg-emerald-500/20 disabled:opacity-50 transition-colors"
+                        >
+                          {t('doctorDashboard.schedule')}
+                        </button>
+                      </div>
+                    </div>
                   </div>
 
                   {chartData.length > 0 && (
@@ -568,6 +801,21 @@ const DoctorDashboard = () => {
                       </div>
                     </div>
                   </div>
+
+                  {detail.recent_check_ins?.[0]?.agent_report && (
+                    <div className="glass-card rounded-3xl p-5 border-l-4 border-l-primary">
+                      <h3 className="text-sm font-semibold mb-3 flex items-center gap-2"><Sparkles size={15} className="text-primary" /> {t('doctorDashboard.latestAiReport')}</h3>
+                      <details className="group">
+                        <summary className="cursor-pointer text-xs text-primary hover:underline flex items-center gap-1 select-none">
+                          {t('doctorDashboard.readAloud')} · {t('doctorDashboard.latestAiReport')}
+                          <ChevronRight size={13} className="transition-transform group-open:rotate-90" />
+                        </summary>
+                        <p className="mt-3 text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap">
+                          {detail.recent_check_ins[0].agent_report}
+                        </p>
+                      </details>
+                    </div>
+                  )}
 
                   <div className="grid md:grid-cols-2 gap-5">
                     <div className="glass-card p-5 rounded-2xl">

@@ -1,9 +1,12 @@
 """
-Qdrant local vector store (free — no server required).
+Qdrant vector store — local or cloud.
 
-Runs Qdrant in embedded/local mode with a persistent on-disk directory so the
-knowledge index survives restarts. The data directory is gitignored
-(`backend/data/`).
+- Local mode (default, free): embedded/local Qdrant with a persistent on-disk
+  directory so the knowledge index survives restarts (`backend/data/qdrant`,
+  gitignored).
+- Cloud mode: when `QDRANT_URL` + `QDRANT_API_KEY` are set (e.g. the Care-Netra
+  cluster), the RAG stack reads/writes the remote collection instead. The
+  keyword retriever fallback still covers outages, so this is never fatal.
 """
 import logging
 from functools import lru_cache
@@ -28,25 +31,29 @@ def _data_path() -> Path:
 
 @lru_cache(maxsize=1)
 def get_client() -> QdrantClient:
-    """Lazy singleton Qdrant client (local persistent mode)."""
+    """Lazy singleton Qdrant client — cloud when configured, else local."""
+    if settings.use_cloud_qdrant:
+        logger.info("[RAG] Using Qdrant Cloud")
+        return QdrantClient(url=settings.QDRANT_URL, api_key=settings.QDRANT_API_KEY)
     return QdrantClient(path=str(_data_path()))
 
 
 def ensure_collection() -> None:
     """Create the knowledge collection, preserving data unless the vector size changed."""
     client = get_client()
-    if client.collection_exists(settings.QDRANT_COLLECTION):
+    name = settings.qdrant_collection_name
+    if client.collection_exists(name):
         try:
-            existing = client.get_collection(settings.QDRANT_COLLECTION)
+            existing = client.get_collection(name)
             if existing.config.params.vectors.size != settings.EMBEDDING_DIM:
-                client.delete_collection(settings.QDRANT_COLLECTION)
+                client.delete_collection(name)
                 logger.warning("[RAG] recreated collection with new vector size")
             else:
                 return  # keep existing indexed data
         except Exception:
             pass
     client.recreate_collection(
-        collection_name=settings.QDRANT_COLLECTION,
+        collection_name=name,
         vectors_config=VectorParams(
             size=settings.EMBEDDING_DIM,
             distance=Distance.COSINE,

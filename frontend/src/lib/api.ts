@@ -47,6 +47,16 @@ api.interceptors.response.use(
 );
 
 // ── Typed conversation API helpers ───────────────────────────
+// ── Doctor API helpers ──────────────────────────────────────
+export const doctorApi = {
+  // Doctor-controlled next check-in time (ISO timestamp) — powers the
+  // "Schedule Auto Check-In" presets + custom datetime picker.
+  scheduleCheckin: (patientId: string, nextCheckInAtIso: string) =>
+    api.post(`/doctor/patient/${patientId}/schedule-checkin`, {
+      next_check_in_at: nextCheckInAtIso,
+    }),
+};
+
 export const conversationApi = {
   getActive: () => api.get('/patient/conversation/active'),
   start: (language: string = 'en') =>

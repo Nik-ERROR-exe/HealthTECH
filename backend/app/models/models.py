@@ -157,6 +157,13 @@ class PatientProfile(Base):
     emergency_contact_email: Mapped[str] = mapped_column(String(255), nullable=True)
     profile_picture_url: Mapped[str] = mapped_column(String(500), nullable=True)
     allow_agent_mic_control: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Agentic check-in: the language the Nurse should reply in.
+    preferred_language: Mapped[str] = mapped_column(
+        String(10), nullable=False, default="en", server_default="en"
+    )
+    # Episodic non-medical memory injected into the next check-in's Nurse prompt.
+    # {"family": "...", "pets": "...", "last_updated": "..."}
+    social_memory: Mapped[dict] = mapped_column(JSON, nullable=True, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow

@@ -59,8 +59,9 @@ GPS → nearby volunteer SMS) covers physical emergencies. The UI is multilingua
 - **NVIDIA NIM is metered (free tier).** The LLM is `meta/llama-3.1-8b-instruct`; embeddings are
   `nvidia/nv-embed-v1` (dim 4096). If an LLM/embedding call fails, the code **must** fall back
   (static bank / OpenCV / keyword retrieval) — never make an AI call fatal.
-- **`HUGGINGFACE_API_KEY` is empty until you paste one** — until then wound analysis uses the
-  OpenCV fallback and never crashes.
+- **Wound vision uses the NVIDIA multimodal VLM** (`meta/llama-3.2-11b-vision-instruct`, key from
+  `NVIDIA_API_KEY`; `VISION_BASE_URL` optional). If the VLM is unreachable it falls back to the local
+  OpenCV pipeline and never crashes. `HUGGINGFACE_API_KEY` is no longer used for vision.
 - **Doctor/volunteer dashboards poll** (`/api/doctor/alerts/active`, pending-agent-message) — don't
   make those endpoints slow.
 - **`uploads/wounds/` is gitignored** — uploaded images live only on the server filesystem.

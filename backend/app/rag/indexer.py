@@ -57,7 +57,7 @@ async def index_knowledge_base(verbose: bool = True) -> dict:
 
         # Skip unchanged docs (already indexed with matching content hash).
         first_pt = client.retrieve(
-            collection_name=settings.QDRANT_COLLECTION,
+            collection_name=settings.qdrant_collection_name,
             ids=[_point_id(path.name, 0)],
             with_payload=True,
         )
@@ -86,7 +86,7 @@ async def index_knowledge_base(verbose: bool = True) -> dict:
                 for i, c in enumerate(chunks)
             ]
             if points:
-                client.upsert(collection_name=settings.QDRANT_COLLECTION, points=points)
+                client.upsert(collection_name=settings.qdrant_collection_name, points=points)
             results["indexed"] += min(1, len(chunks))
             if verbose:
                 logger.info(f"[RAG] indexed {len(chunks)} chunks from {path.name}")

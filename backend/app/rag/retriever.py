@@ -79,7 +79,7 @@ async def retrieve(query: str, top_k: int = settings.RAG_TOP_K) -> list[dict]:
     try:
         client = get_client()
         hits = client.search(
-            collection_name=settings.QDRANT_COLLECTION,
+            collection_name=settings.qdrant_collection_name,
             query_vector=vectors[0],
             limit=top_k,
             with_payload=True,
@@ -87,7 +87,9 @@ async def retrieve(query: str, top_k: int = settings.RAG_TOP_K) -> list[dict]:
         return [
             {
                 "id": hit.id,
-                "text": hit.payload.get("text", ""),
+                # MedQuAD points store the QA text under "content"; the markdown
+                # knowledge chunks use "text". Read either seamlessly.
+                "text": hit.payload.get("content") or hit.payload.get("text", ""),
                 "title": hit.payload.get("title", ""),
                 "source": hit.payload.get("source", ""),
                 "score": round(hit.score or 0.0, 4),

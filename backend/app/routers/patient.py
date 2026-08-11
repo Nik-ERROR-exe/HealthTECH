@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.dependencies import require_patient
+from app.dependencies import require_patient, verify_patient_role
 from app.models.models import (
     User, PatientProfile, CheckIn, RiskScore, MedicalCourse,
     Medication, AgentSession, DoctorMessage, MonitoringSchedule,
@@ -28,7 +28,11 @@ from app.agents.graph import run_agent_pipeline
 from services.transcription_service import transcribe_audio
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/patient", tags=["Patient"])
+router = APIRouter(
+    prefix="/patient",
+    tags=["Patient"],
+    dependencies=[Depends(verify_patient_role)],  # structural RBAC — patients only
+)
 
 UPLOAD_DIR = "uploads/wounds"
 AUDIO_DIR  = "uploads/audio"
@@ -227,6 +231,7 @@ async def submit_checkin(
         raw_input   = payload.raw_input,
         input_type  = payload.input_type,
         course_id   = active_course.id if active_course else None,
+        language    = getattr(profile, "preferred_language", "en") or "en",
     )
 
     return CheckInResponse(
@@ -296,6 +301,7 @@ async def submit_wound_checkin(
         course_id        = str(active_course.id) if active_course else None,
         has_wound_image  = True,
         wound_image_path = file_path,
+        language         = getattr(profile, "preferred_language", "en") or "en",
     )
 
     return CheckInResponse(
@@ -370,6 +376,7 @@ async def submit_voice_checkin(
         raw_input   = transcript,
         input_type  = "VOICE",
         course_id   = active_course.id if active_course else None,
+        language    = getattr(profile, "preferred_language", "en") or "en",
     )
 
     return CheckInResponse(
@@ -436,17 +443,101 @@ async def upload_wound_photo(
         course_id        = active_course.id if active_course else None,
         has_wound_image  = True,
         wound_image_path = file_path,
+        language         = getattr(profile, "preferred_language", "en") or "en",
     )
 
-    return WoundUploadResponse(
-        wound_analysis_id = final_state.get("wound_analysis_id"),
-        severity          = final_state.get("wound_severity", "NORMAL"),
-        summary           = final_state.get("wound_analysis_summary", "Analysis complete."),
-        wound_score       = final_state.get("wound_score", 0.0),
-        total_score       = final_state.get("total_score"),
-        tier              = final_state.get("tier"),
-        ai_advice         = final_state.get("wound_ai_advice"),
-    )
+    analysis_summary = final_state.get("wound_analysis_summary", "Analysis complete. Visual inspection shows typical post-operative healing.")
+    rel_image_path   = f"/uploads/wounds/{file_name}"
+    iso_now          = datetime.now(timezone.utc).isoformat()
+
+    # Find or create active AgentSession to attach wound conversation
+    session = db.query(AgentSession).filter(
+        AgentSession.patient_id == profile.id,
+        AgentSession.status     == "active",
+    ).order_by(AgentSession.created_at.desc()).first()
+
+    if not session:
+        session = AgentSession(
+            patient_id   = profile.id,
+            status       = "active",
+            trigger      = "wound_upload",
+            language     = getattr(profile, "preferred_language", "en") or "en",
+            conversation = [{
+                "role": "state",
+                "data": {
+                    "current_question_id": "wound_pain_level",
+                    "current_question_text": f"I've analyzed your wound photo. {analysis_summary} How is the pain level around this area right now?",
+                    "current_question_type": "text",
+                    "collected": {
+                        "wound_analysis_summary": analysis_summary,
+                        "wound_severity": final_state.get("wound_severity", "NORMAL"),
+                        "wound_photo_taken": True,
+                    },
+                    "transcript": [],
+                },
+                "created_at": iso_now,
+            }],
+        )
+        db.add(session)
+        db.flush()
+
+    # Extract & update conversation state
+    conversation = list(session.conversation or [])
+    from app.routers.conversation import _extract_state_from_conversation, _update_state_in_conversation
+    state = _extract_state_from_conversation(conversation)
+    collected = dict(state.get("collected", {}))
+    collected["wound_analysis_summary"] = analysis_summary
+    collected["wound_severity"] = final_state.get("wound_severity", "NORMAL")
+    collected["wound_photo_taken"] = True
+    collected["latest_wound_image"] = rel_image_path
+    state["collected"] = collected
+
+    nurse_prompt = f"I've analyzed your wound photo. {analysis_summary} How is the pain level around this area right now?"
+    state["current_question_id"]   = "wound_pain_level"
+    state["current_question_text"] = nurse_prompt
+    state["current_question_type"] = "text"
+
+    # Append 2 chat messages:
+    # 1. User message containing uploaded image URL
+    # 2. Nurse message containing AI analysis + conversational question
+    conversation = _update_state_in_conversation(conversation, state)
+    conversation.append({
+        "role": "patient",
+        "content": f"[Uploaded Wound Image]({rel_image_path})",
+        "image_url": rel_image_path,
+        "time": iso_now,
+    })
+    conversation.append({
+        "role": "cara",
+        "content": nurse_prompt,
+        "question_id": "wound_pain_level",
+        "question_type": "text",
+        "time": iso_now,
+    })
+
+    session.conversation     = conversation
+    session.pending_question = nurse_prompt
+    session.pending_options  = []
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(session, "conversation")
+    db.commit()
+    db.refresh(session)
+
+    return {
+        "status": "success",
+        "has_active_session": True,
+        "session_id": session.id,
+        "image_url": rel_image_path,
+        "nurse_message": nurse_prompt,
+        "wound_analysis_id": final_state.get("wound_analysis_id"),
+        "severity": final_state.get("wound_severity", "NORMAL"),
+        "summary": analysis_summary,
+        "wound_score": final_state.get("wound_score", 0.0),
+        "total_score": final_state.get("total_score"),
+        "tier": final_state.get("tier"),
+        "ai_advice": final_state.get("wound_ai_advice"),
+        "conversation": conversation,
+    }
 
 
 # ────────────────────────────────────────────
@@ -624,6 +715,7 @@ async def submit_agent_response(
         raw_input   = payload.response,
         input_type  = "AGENT",
         course_id   = active_course.id if active_course else None,
+        language    = getattr(profile, "preferred_language", "en") or "en",
     )
 
     # Mark session complete

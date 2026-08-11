@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
 from app.database import get_db
-from app.dependencies import require_doctor
+from app.dependencies import require_doctor, verify_doctor_role
 from app.models.models import (
     User, DoctorProfile, PatientProfile, MedicalCourse,
     Medication, RiskScore, CheckIn, Alert, AlertStatus,
@@ -19,11 +19,15 @@ from app.models.models import (
 )
 from app.schemas.patient_doctor import (
     CourseCreateRequest, CourseAssignRequest, SendMessageRequest,
-    CourseModifyRequest,
+    CourseModifyRequest, ScheduleCheckinRequest,
 )
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/doctor", tags=["Doctor"])
+router = APIRouter(
+    prefix="/doctor",
+    tags=["Doctor"],
+    dependencies=[Depends(verify_doctor_role)],  # structural RBAC — doctors only
+)
 
 
 # ── Helper ────────────────────────────────────────────────────────
@@ -372,6 +376,66 @@ def _build_condition_metrics(
 
     base.update(condition_extras.get(condition, {}))
     return base
+
+
+# ────────────────────────────────────────────
+# POST /api/doctor/patient/{patient_id}/schedule-checkin
+# Doctor-controlled next check-in time (hackathon demo): accepts an ISO timestamp
+# and updates monitoring_schedules for the patient. Presets on the dashboard
+# (1-min demo / now / datetime picker) are all just variants of this body.
+# ────────────────────────────────────────────
+
+@router.post("/patient/{patient_id}/schedule-checkin")
+def schedule_checkin(
+    patient_id:   str,
+    req:          ScheduleCheckinRequest,
+    current_user: User    = Depends(require_doctor),
+    db:           Session = Depends(get_db),
+):
+    doctor = _get_doctor_profile(current_user, db)
+
+    # Verify this patient is assigned to this doctor via an active course
+    course = db.query(MedicalCourse).filter(
+        MedicalCourse.doctor_id  == doctor.id,
+        MedicalCourse.patient_id == patient_id,
+        MedicalCourse.status     == "ACTIVE",
+    ).first()
+    if not course:
+        raise HTTPException(
+            status_code=404, detail="No active course found for this patient"
+        )
+
+    try:
+        next_at = datetime.fromisoformat(req.next_check_in_at.replace("Z", "+00:00"))
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid ISO timestamp")
+    if next_at.tzinfo is None:
+        next_at = next_at.replace(tzinfo=timezone.utc)
+
+    schedule = db.query(MonitoringSchedule).filter(
+        MonitoringSchedule.patient_id == patient_id
+    ).first()
+    if not schedule:
+        schedule = MonitoringSchedule(
+            patient_id=patient_id,
+            check_in_interval_hours=24,
+        )
+        db.add(schedule)
+
+    schedule.next_check_in_at = next_at
+    schedule.interval_reason = "Doctor-scheduled check-in"
+    schedule.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(schedule)
+
+    logger.info(
+        f"[Doctor] Check-in scheduled for patient {patient_id} "
+        f"(next at {schedule.next_check_in_at.isoformat()})"
+    )
+    return {
+        "message": "Check-in scheduled",
+        "next_check_in_at": schedule.next_check_in_at.isoformat(),
+    }
 
 
 # ────────────────────────────────────────────
