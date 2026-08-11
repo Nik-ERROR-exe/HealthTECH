@@ -15,6 +15,7 @@ const DoctorDashboard = lazy(() => import('./pages/DoctorDashboard'));
 const CreateCourse = lazy(() => import('./pages/CreateCourse'));
 const ProfilePage = lazy(() => import('./pages/ProfilePage'));
 const VolunteerDashboard = lazy(() => import('./pages/VolunteerDashboard'));
+const RelativeDashboard = lazy(() => import('./pages/RelativeDashboard'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 
 const queryClient = new QueryClient();
@@ -44,6 +45,7 @@ const App = () => (
                 </ProtectedRoute>
               }
             />
+            <Route path="/relative/dashboard" element={<ProtectedRoute requiredRole="RELATIVE"><RelativeDashboard /></ProtectedRoute>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Suspense>
