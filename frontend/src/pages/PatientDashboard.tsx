@@ -14,6 +14,17 @@ import { getUser } from '@/lib/auth';
 import api, { conversationApi } from '@/lib/api';
 import ImpactDetector, { ImpactDetectorHandle } from '@/components/ImpactDetector';
 import Lenis from '@studio-freight/lenis';
+import CarePlanLockedView from '@/components/payment/CarePlanLockedView';
+import DummyPaymentGatewayModal from '@/components/payment/DummyPaymentGatewayModal';
+import { demoPatientDashboard } from '@/lib/demo-data';
+import {
+  isAbhayPatientEmail,
+  abhayPatientDashboardData,
+  abhayMessages,
+  abhayCheckinHistory,
+  abhayWoundHistory,
+  ABHAY_UID
+} from '@/lib/abhay-demo-data';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart as RePieChart, Pie, Cell, RadialBarChart, RadialBar,
@@ -144,6 +155,9 @@ const PatientDashboard = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const impactDetectorRef = useRef<ImpactDetectorHandle>(null);  // <-- FIXED
 
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [isPaid, setIsPaid] = useState<boolean>(false);
+
   // Lenis smooth scroll
   useEffect(() => {
     const lenis = new Lenis({ duration: 1.2, smoothWheel: true });
@@ -152,18 +166,58 @@ const PatientDashboard = () => {
     return () => lenis.destroy();
   }, []);
 
+  const isAbhay = isAbhayPatientEmail(user?.email) || user?.unique_uid === ABHAY_UID;
+
   const fetchDashboard = async () => {
+    if (isAbhay) {
+      setData(abhayPatientDashboardData as any);
+      setLoading(false);
+      return;
+    }
+
     try {
       const res = await api.get('/patient/dashboard');
       setData(res.data);
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || 'Failed to load dashboard');
+      // Fallback demo data if backend is offline/unreachable
+      setData({
+        patient_id: demoPatientDashboard.user.id,
+        full_name: demoPatientDashboard.user.name,
+        unique_uid: demoPatientDashboard.user.patient_id,
+        health_status: 'stable',
+        active_course: {
+          course_id: demoPatientDashboard.course.id,
+          course_name: demoPatientDashboard.course.name,
+          condition: 'Post-Surgery Recovery',
+          doctor_name: demoPatientDashboard.course.doctor,
+          start_date: demoPatientDashboard.course.startDate,
+          end_date: demoPatientDashboard.course.endDate,
+          progress_pct: demoPatientDashboard.course.progress,
+          notes: null,
+        },
+        medications_today: demoPatientDashboard.course.medications.map((m, idx) => ({
+          id: `m-${idx}`,
+          name: m.name,
+          dosage: m.dosage,
+          frequency: m.frequency,
+          time_of_day: 'Morning',
+          instructions: null,
+          taken: m.taken,
+        })),
+        last_check_in: '2 hours ago',
+        unread_messages: 2,
+        pending_question: null,
+      } as any);
     } finally {
       setLoading(false);
     }
   };
 
   const fetchMessages = async () => {
+    if (isAbhay) {
+      setMessages(abhayMessages as any);
+      return;
+    }
     try {
       const res = await api.get('/patient/messages');
       setMessages(res.data.messages || []);
@@ -171,6 +225,10 @@ const PatientDashboard = () => {
   };
 
   const fetchCheckinHistory = async () => {
+    if (isAbhay) {
+      setCheckinHistory(abhayCheckinHistory as any);
+      return;
+    }
     try {
       const res = await api.get('/patient/checkin-history');
       setCheckinHistory(res.data.history || []);
@@ -178,6 +236,10 @@ const PatientDashboard = () => {
   };
 
   const fetchWoundHistory = async () => {
+    if (isAbhay) {
+      setWoundHistory(abhayWoundHistory as any);
+      return;
+    }
     try {
       const res = await api.get('/patient/wound-history');
       setWoundHistory(res.data.wounds || []);
@@ -185,6 +247,10 @@ const PatientDashboard = () => {
   };
 
   const fetchNearbyVolunteers = async () => {
+    if (isAbhay) {
+      setNearbyVolunteers(2);
+      return;
+    }
     try {
       const res = await api.get('/patient/nearby-volunteers');
       setNearbyVolunteers(res.data.count);
@@ -201,6 +267,15 @@ const PatientDashboard = () => {
     };
     fetchAll();
   }, []);
+
+  const activePatientId = data?.unique_uid || data?.patient_id || user?.patient_id || user?.id || 'CN-2024-0847';
+
+  useEffect(() => {
+    if (activePatientId) {
+      const status = localStorage.getItem(`carenetra_payment_status_${activePatientId}`);
+      setIsPaid(status === 'PAID');
+    }
+  }, [activePatientId]);
 
   const copyId = () => {
     navigator.clipboard.writeText(data?.unique_uid || '');
@@ -262,6 +337,40 @@ const PatientDashboard = () => {
             Retry
           </button>
         </div>
+      </DashboardLayout>
+    );
+  }
+
+  // Check if Care Plan is locked (Unpaid)
+  if (!isPaid && data.active_course) {
+    const courseName = data.active_course.course_name || 'Post-Surgery Recovery Plan';
+    const doctorName = data.active_course.doctor_name || 'Dr. Michael Chen';
+    const startDate = data.active_course.start_date || '2024-12-01';
+    const endDate = data.active_course.end_date || '2025-03-01';
+
+    return (
+      <DashboardLayout>
+        <CarePlanLockedView
+          courseName={courseName}
+          doctorName={doctorName}
+          startDate={startDate}
+          endDate={endDate}
+          amount={2499}
+          onUnlockClick={() => setShowPaymentModal(true)}
+        />
+        <DummyPaymentGatewayModal
+          isOpen={showPaymentModal}
+          onClose={() => setShowPaymentModal(false)}
+          onSuccess={(txnId) => {
+            localStorage.setItem(`carenetra_payment_status_${activePatientId}`, 'PAID');
+            setIsPaid(true);
+            setShowPaymentModal(false);
+          }}
+          courseName={courseName}
+          doctorName={doctorName}
+          amount={2499}
+          patientId={activePatientId}
+        />
       </DashboardLayout>
     );
   }
