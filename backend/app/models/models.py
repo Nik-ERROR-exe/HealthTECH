@@ -26,6 +26,7 @@ class UserRole(str, PyEnum):
     PATIENT   = "PATIENT"
     DOCTOR    = "DOCTOR"
     VOLUNTEER = "VOLUNTEER"
+    RELATIVE  = "RELATIVE"
 
 
 class RiskTier(str, PyEnum):
@@ -83,6 +84,13 @@ class ImpactAlertStatus(str, PyEnum):
     RESOLVED   = "RESOLVED"    # manually resolved or patient confirmed okay
 
 
+class RelationshipType(str, PyEnum):
+    DAUGHTER = "DAUGHTER"
+    SON      = "SON"
+    FRIEND   = "FRIEND"
+    OTHER    = "OTHER"
+
+
 # ─────────────────────────────────────────────
 # HELPER
 # ─────────────────────────────────────────────
@@ -134,6 +142,9 @@ class User(Base):
     volunteer_profile: Mapped["VolunteerProfile"] = relationship(
         "VolunteerProfile", back_populates="user", uselist=False, cascade="all, delete-orphan"
     )
+    relative_profile: Mapped["RelativeProfile"] = relationship(
+        "RelativeProfile", back_populates="user", uselist=False, cascade="all, delete-orphan"
+    )
 
 
 # ─────────────────────────────────────────────
@@ -179,6 +190,9 @@ class PatientProfile(Base):
     )
     agent_sessions: Mapped[list["AgentSession"]] = relationship(
         "AgentSession", back_populates="patient"
+    )
+    relative_profiles: Mapped[list["RelativeProfile"]] = relationship(
+        "RelativeProfile", back_populates="patient"
     )
 
 
@@ -252,7 +266,35 @@ class VolunteerProfile(Base):
 
 
 # ─────────────────────────────────────────────
-# TABLE 3.6: impact_alerts
+# TABLE 3.7: relative_profiles
+# Extended relative info beyond auth.
+# ─────────────────────────────────────────────
+
+class RelativeProfile(Base):
+    __tablename__ = "relative_profiles"
+
+    id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    user_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("users.id", ondelete="CASCADE"), unique=True
+    )
+    patient_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("patient_profiles.id", ondelete="CASCADE")
+    )
+    relationship_type: Mapped[RelationshipType] = mapped_column(Enum(RelationshipType), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+    # Relationships
+    user: Mapped["User"] = relationship("User", back_populates="relative_profile")
+    patient: Mapped["PatientProfile"] = relationship("PatientProfile", back_populates="relative_profiles")
+
+
+# ─────────────────────────────────────────────
+# TABLE 3.8: impact_alerts
 # Crash/impact alerts reported by patients, responded to by volunteers.
 # ─────────────────────────────────────────────
 
