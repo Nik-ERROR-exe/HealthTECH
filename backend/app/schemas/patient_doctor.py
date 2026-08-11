@@ -25,6 +25,10 @@ class CheckInResponse(BaseModel):
     new_interval_hours: Optional[int]
     errors:            List[str]
     ai_advice:         Optional[str] = None
+    session_id:        Optional[str] = None
+    image_url:         Optional[str] = None
+    nurse_message:     Optional[str] = None
+    summary:           Optional[str] = None
 
 
 class PatientDashboardResponse(BaseModel):

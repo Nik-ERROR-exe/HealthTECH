@@ -407,6 +407,9 @@ async def get_active_session(
     """
     Called by frontend on page load.
     Returns has_active_session=True if a session is waiting.
+    If the session was created by the scheduler's fallback path (no proper
+    nurse-agent state), we regenerate state on-the-fly so the conversation
+    can proceed normally.
     """
     session = db.query(AgentSession).filter(
         AgentSession.patient_id == current_patient.id,
@@ -420,6 +423,41 @@ async def get_active_session(
     # stored state so the frontend echoes back a real question id on /answer.
     conversation = list(session.conversation or [])
     state = _extract_state_from_conversation(conversation)
+
+    # ── FIX: If session exists but has no proper state (scheduler fallback),
+    # regenerate via start_nurse_session so nurse_respond gets valid context ──
+    if not state.get("current_question_id"):
+        course = _get_active_course(current_patient.id, db)
+        if course:
+            try:
+                language = getattr(session, "language", "en") or "en"
+                result = await start_nurse_session(
+                    patient_id=current_patient.id,
+                    course_id=course.id,
+                    db=db,
+                    language=language,
+                )
+                state = result["state"]
+                first_q = result["first_question"]
+                session.conversation = [{
+                    "role": "state",
+                    "data": state,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                }]
+                session.pending_question = first_q.get("question")
+                session.pending_options = first_q.get("options") or []
+                flag_modified(session, "conversation")
+                db.commit()
+                conversation = list(session.conversation)
+                logger.info(
+                    f"[Conversation] Regenerated state for session {session.id}"
+                )
+            except Exception as exc:
+                logger.error(
+                    f"[Conversation] State regeneration failed for "
+                    f"session {session.id}: {exc}"
+                )
+
     pending_text = state.get("current_question_text") or session.pending_question or "Hello! How are you feeling overall today?"
     q_id         = state.get("current_question_id") or f"resumed_{session.id[:8]}"
     q_type       = state.get("current_question_type")

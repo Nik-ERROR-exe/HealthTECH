@@ -7,7 +7,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
-import { conversationApi } from '@/lib/api';
+import { conversationApi, emergencyApi } from '@/lib/api';
 import FaceAnalyzer from '@/components/FaceAnalyzer';
 import { getEmpatheticReply } from '@/lib/nvidiaApi';
 
@@ -141,80 +141,7 @@ const AgentChat = () => {
 
   const isCheckinActive = faceAnalyzerEnabled && phase !== 'idle' && phase !== 'done';
 
-  useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
-  }, [messages, phase]);
-
-  useEffect(() => {
-    if (hasTTS && !voicesLoaded.current) {
-      window.speechSynthesis.getVoices();
-      window.speechSynthesis.onvoiceschanged = () => { voicesLoaded.current = true; };
-    }
-  }, [hasTTS]);
-
-  useEffect(() => {
-    const handleLanguageChange = () => {
-      setCurrentLanguage(i18n.language);
-    };
-    i18n.on('languageChanged', handleLanguageChange);
-    return () => i18n.off('languageChanged', handleLanguageChange);
-  }, [i18n]);
-
-  useEffect(() => {
-    const handler = (e: any) => {
-      setOpen(true);
-      if (e?.detail?.nurse_message) {
-        if (e.detail.session_id) setSessionId(e.detail.session_id);
-        if (e.detail.image_url) {
-          addMsg({
-            role: 'patient',
-            content: `[Uploaded Wound Image](${e.detail.image_url})`,
-            imageUrl: e.detail.image_url,
-          });
-        }
-        const nurseMsg = e.detail.nurse_message;
-        const q: Question = {
-          id: 'wound_pain_level',
-          question: nurseMsg,
-          type: 'text',
-        };
-        displayQuestion(q);
-      }
-    };
-    window.addEventListener('carenetra:open-agent-chat', handler);
-    return () => window.removeEventListener('carenetra:open-agent-chat', handler);
-  }, []);
-
-  // When the widget opens with no active conversation, resume any pending
-  // (agent-triggered) check-in — e.g. the scheduler's 1-minute demo trigger or
-  // a `/checkin?session_id=...` deep link — otherwise start the session immediately.
-  useEffect(() => {
-    if (!open || phase !== 'idle' || messages.length > 0) return;
-
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await conversationApi.getActive();
-        if (cancelled) return;
-        if (res.data?.has_active_session) {
-          const firstQ = res.data.first_question as Question | undefined;
-          setSessionId(res.data.session_id);
-          if (firstQ) {
-            displayQuestion(firstQ);
-          } else {
-            startSession();
-          }
-          return;
-        }
-      } catch { /* fall through to starting a new session */ }
-      if (!cancelled) startSession();
-    })();
-
-    return () => { cancelled = true; };
-  }, [open]); // eslint-disable-line
-
-  // ── TTS ───────────────────────────────────────────────────────────────────────
-
+  // ── TTS & Question display helpers (declared before useEffect usage) ────
   const getLanguageCode = (lang: string): string => {
     const map: Record<string, string> = {
       en: 'en-US',
@@ -231,15 +158,12 @@ const AgentChat = () => {
     const voices    = window.speechSynthesis.getVoices();
     const langCode = getLanguageCode(currentLanguage);
     
-    // Try to find voice in current language
     let preferred = voices.find(v => v.lang.toLowerCase().startsWith(langCode.toLowerCase().split('-')[0]));
     
-    // Fallback: If Marathi is missing, try Hindi
     if (!preferred && currentLanguage === 'mr') {
       preferred = voices.find(v => v.lang.toLowerCase().startsWith('hi'));
     }
 
-    // Fallback for English specific voices
     if (!preferred && currentLanguage === 'en') {
       preferred = voices.find(v =>
         v.name.includes('Samantha') || v.name.includes('Karen') || v.name.includes('Victoria') ||
@@ -284,13 +208,7 @@ const AgentChat = () => {
     setPhase((q.type === 'photo' || q.type === 'photo_prompt') ? 'photo' : 'chatting');
   }, [addMsg, speak]);
 
-  // ── Session flow ──────────────────────────────────────────────────────────────
-
-  const initChat = async () => {
-    startSession();
-  };
-
-  const startSession = async () => {
+  const startSession = useCallback(async () => {
     stopAlertSound();
     setEmergencyActive(false);
     setEmergencyContacts(null);
@@ -314,7 +232,89 @@ const AgentChat = () => {
       toast.error(err.response?.data?.detail || 'Failed to start check-in. Please try again.');
       setPhase('idle');
     }
+  }, [stopAlertSound, i18n.language, addMsg, speak, displayQuestion]);
+
+  const initChat = async () => {
+    startSession();
   };
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
+  }, [messages, phase]);
+
+  useEffect(() => {
+    if (hasTTS && !voicesLoaded.current) {
+      window.speechSynthesis.getVoices();
+      window.speechSynthesis.onvoiceschanged = () => { voicesLoaded.current = true; };
+    }
+  }, [hasTTS]);
+
+  useEffect(() => {
+    const handleLanguageChange = () => {
+      setCurrentLanguage(i18n.language);
+    };
+    i18n.on('languageChanged', handleLanguageChange);
+    return () => i18n.off('languageChanged', handleLanguageChange);
+  }, [i18n]);
+
+  useEffect(() => {
+    const handler = (e: any) => {
+      setOpen(true);
+      setFaceAnalyzerEnabled(true);
+      const detail = e?.detail;
+      const nurseMsg = detail?.nurse_message || detail?.ai_advice || detail?.summary;
+      if (nurseMsg) {
+        if (detail?.session_id) setSessionId(detail.session_id);
+        if (detail?.image_url) {
+          addMsg({
+            role: 'patient',
+            content: `[Uploaded Wound Image](${detail.image_url})`,
+            imageUrl: detail.image_url,
+          });
+        }
+        const fullPrompt = nurseMsg.includes('How') ? nurseMsg : `I've analyzed your wound photo: ${nurseMsg}. How is the pain level around this area right now?`;
+        const q: Question = {
+          id: 'wound_pain_level',
+          question: fullPrompt,
+          type: 'text',
+        };
+        displayQuestion(q);
+      } else if (phase === 'idle') {
+        startSession();
+      }
+    };
+    window.addEventListener('carenetra:open-agent-chat', handler);
+    return () => window.removeEventListener('carenetra:open-agent-chat', handler);
+  }, [phase, displayQuestion, addMsg, startSession]);
+
+  // When the widget opens with no active conversation, resume any pending
+  // (agent-triggered) check-in — e.g. the scheduler's 1-minute demo trigger or
+  // a `/checkin?session_id=...` deep link — otherwise start the session immediately.
+  useEffect(() => {
+    if (!open || phase !== 'idle' || messages.length > 0) return;
+
+    let cancelled = false;
+    (async () => {
+      setFaceAnalyzerEnabled(true);
+      try {
+        const res = await conversationApi.getActive();
+        if (cancelled) return;
+        if (res.data?.has_active_session) {
+          const firstQ = res.data.first_question as Question | undefined;
+          setSessionId(res.data.session_id);
+          if (firstQ) {
+            displayQuestion(firstQ);
+          } else {
+            startSession();
+          }
+          return;
+        }
+      } catch { /* fall through to starting a new session */ }
+      if (!cancelled) startSession();
+    })();
+
+    return () => { cancelled = true; };
+  }, [open, phase, messages.length, displayQuestion, startSession]);
 
   // ── Answer flow ──────────────────────────────────────────────────────────────
 
@@ -480,6 +480,47 @@ const AgentChat = () => {
     setFacialDistress(0);
     setDominantEmotion('neutral');
     setFaceAnalyzerEnabled(false);
+  };
+
+  const handleRedButtonClick = async () => {
+    let lat = 19.0760;
+    let lng = 72.8777;
+
+    try {
+      if ('geolocation' in navigator) {
+        const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: true,
+            timeout: 5000,
+          });
+        });
+        lat = pos.coords.latitude;
+        lng = pos.coords.longitude;
+      }
+    } catch {
+      // Fallback demo coordinates (Mumbai / default user location)
+    }
+
+    try {
+      const userStr = localStorage.getItem('carenetra_user');
+      let patientId: string | undefined;
+      if (userStr) {
+        try {
+          const u = JSON.parse(userStr);
+          patientId = u.patient_id || u.id;
+        } catch { /* ignore */ }
+      }
+
+      await emergencyApi.dispatch({
+        patient_id: patientId,
+        latitude: lat,
+        longitude: lng,
+        trigger_type: 'RED_BUTTON_CLICK',
+      });
+      toast.success('Emergency alert & location sent to care team!');
+    } catch (err) {
+      console.error('Emergency dispatch error:', err);
+    }
   };
 
   const progressPct = phase === 'done' ? 100
@@ -683,7 +724,7 @@ const AgentChat = () => {
                 )}
               </div>
             ) : (
-              /* ── STANDARD CHAT LAYOUT (idle / done) ── */
+              /* ── STANDARD CHAT LAYOUT (idle / done / chatting without camera) ── */
               <>
                 <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
                   {messages.map((msg, idx) => {
@@ -716,6 +757,35 @@ const AgentChat = () => {
                           )}
                           {cleanContent}
                         </div>
+
+                        {/* Quick option buttons */}
+                        {msg.role === 'cara' && msg.options && msg.isLatest && phase === 'chatting' && (
+                          <div className="flex flex-wrap gap-1.5 max-w-[85%]">
+                            {msg.options.map(opt => (
+                              <motion.button
+                                key={opt}
+                                whileHover={{ scale: 1.03 }}
+                                whileTap={{ scale: 0.97 }}
+                                onClick={() => submitAnswer(opt)}
+                                className="text-xs px-3 py-1.5 rounded-full border border-primary/30 bg-primary/10 text-primary hover:bg-primary/20 transition-all"
+                              >
+                                {opt}
+                              </motion.button>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Photo upload prompt */}
+                        {msg.role === 'cara' && (msg.questionType === 'photo' || msg.questionType === 'photo_prompt') && msg.isLatest && phase === 'photo' && (
+                          <motion.button
+                            initial={{ opacity: 0, scale: 0.9 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            onClick={() => fileInputRef.current?.click()}
+                            className="flex items-center gap-2 text-xs px-4 py-2 rounded-xl border border-primary/30 bg-primary/10 text-primary hover:bg-primary/20 transition-all"
+                          >
+                            <Upload size={13} /> Upload wound photo
+                          </motion.button>
+                        )}
                       </motion.div>
                     );
                   })}
@@ -751,6 +821,47 @@ const AgentChat = () => {
                     </motion.div>
                   )}
                 </div>
+
+                {/* ── Input bar — text + mic + send (standard layout) ── */}
+                {(phase === 'chatting' || phase === 'photo') && (
+                  <div className="px-3 pb-3 pt-2 border-t border-border shrink-0">
+                    <div className="flex items-center gap-2">
+                      {hasMic && (
+                        <button
+                          onClick={isListening ? stopListening : startListening}
+                          className={`relative p-2.5 rounded-full transition-colors flex-shrink-0 ${
+                            isListening ? 'bg-destructive text-destructive-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'
+                          }`}
+                        >
+                          {isListening ? <MicOff size={15} /> : <Mic size={15} />}
+                          {isListening && <span className="absolute inset-0 rounded-full animate-ping bg-destructive/25 pointer-events-none" />}
+                        </button>
+                      )}
+                      <input
+                        value={textInput}
+                        onChange={e => setTextInput(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter' && textInput.trim()) submitAnswer(textInput.trim()); }}
+                        placeholder={isListening ? 'Listening…' : 'Type or speak your answer…'}
+                        autoFocus
+                        className="flex-1 bg-muted rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-ring/30"
+                      />
+                      <button
+                        onClick={() => fileInputRef.current?.click()}
+                        className="p-2.5 rounded-full bg-muted text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
+                        title="Upload photo"
+                      >
+                        <Upload size={15} />
+                      </button>
+                      <button
+                        onClick={() => textInput.trim() && submitAnswer(textInput.trim())}
+                        disabled={!textInput.trim()}
+                        className="p-2.5 rounded-full bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-40 transition-opacity flex-shrink-0"
+                      >
+                        <Send size={15} />
+                      </button>
+                    </div>
+                  </div>
+                )}
               </>
             )}
           </motion.div>
@@ -802,6 +913,7 @@ const AgentChat = () => {
 
             <a
               href={emergencyContacts?.emergency_contact_phone ? `tel:${emergencyContacts.emergency_contact_phone}` : 'tel:108'}
+              onClick={handleRedButtonClick}
               className="flex items-center justify-center gap-2 w-full py-4 rounded-xl bg-red-600 hover:bg-red-700 text-white text-lg font-bold shadow-lg transition-colors"
             >
               <Phone size={20} />

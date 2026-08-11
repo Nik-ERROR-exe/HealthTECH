@@ -8,9 +8,10 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status, BackgroundTasks
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.database import get_db
 from app.dependencies import require_patient, verify_patient_role
@@ -304,6 +305,78 @@ async def submit_wound_checkin(
         language         = getattr(profile, "preferred_language", "en") or "en",
     )
 
+    # Find or create active AgentSession to attach wound conversation
+    analysis_summary = final_state.get("wound_analysis_summary") or final_state.get("wound_ai_advice") or "Visual inspection shows typical post-operative healing."
+    rel_image_path   = f"/uploads/wounds/{filename}"
+    iso_now          = datetime.now(timezone.utc).isoformat()
+
+    session = db.query(AgentSession).filter(
+        AgentSession.patient_id == profile.id,
+        AgentSession.status     == "active",
+    ).order_by(AgentSession.created_at.desc()).first()
+
+    if not session:
+        session = AgentSession(
+            patient_id   = profile.id,
+            status       = "active",
+            trigger      = "wound_upload",
+            language     = getattr(profile, "preferred_language", "en") or "en",
+            conversation = [{
+                "role": "state",
+                "data": {
+                    "current_question_id": "wound_pain_level",
+                    "current_question_text": f"I've analyzed your wound photo. {analysis_summary} How is the pain level around this area right now?",
+                    "current_question_type": "text",
+                    "collected": {
+                        "wound_analysis_summary": analysis_summary,
+                        "wound_severity": final_state.get("wound_severity", "NORMAL"),
+                        "wound_photo_taken": True,
+                    },
+                    "transcript": [],
+                },
+                "created_at": iso_now,
+            }],
+        )
+        db.add(session)
+        db.flush()
+
+    # Extract & update conversation state
+    conversation = list(session.conversation or [])
+    from app.routers.conversation import _extract_state_from_conversation, _update_state_in_conversation
+    state = _extract_state_from_conversation(conversation)
+    collected = dict(state.get("collected", {}))
+    collected["wound_analysis_summary"] = analysis_summary
+    collected["wound_severity"] = final_state.get("wound_severity", "NORMAL")
+    collected["wound_photo_taken"] = True
+    collected["latest_wound_image"] = rel_image_path
+    state["collected"] = collected
+
+    nurse_prompt = f"I've analyzed your wound photo. {analysis_summary} How is the pain level around this area right now?"
+    state["current_question_id"]   = "wound_pain_level"
+    state["current_question_text"] = nurse_prompt
+    state["current_question_type"] = "text"
+
+    conversation = _update_state_in_conversation(conversation, state)
+    conversation.append({
+        "role": "patient",
+        "content": f"[Uploaded Wound Image]({rel_image_path})",
+        "image_url": rel_image_path,
+        "time": iso_now,
+    })
+    conversation.append({
+        "role": "cara",
+        "content": nurse_prompt,
+        "question_id": "wound_pain_level",
+        "question_type": "text",
+        "time": iso_now,
+    })
+
+    session.conversation     = conversation
+    session.pending_question = nurse_prompt
+    session.pending_options  = []
+    flag_modified(session, "conversation")
+    db.commit()
+
     return CheckInResponse(
         check_in_id        = check_in.id,
         patient_id         = profile.id,
@@ -314,6 +387,10 @@ async def submit_wound_checkin(
         new_interval_hours = final_state.get("new_interval_hours"),
         errors             = final_state.get("errors", []),
         ai_advice          = final_state.get("wound_ai_advice"),
+        session_id         = session.id,
+        image_url          = rel_image_path,
+        nurse_message      = nurse_prompt,
+        summary            = analysis_summary,
     )
 
 # ────────────────────────────────────────────
@@ -921,3 +998,25 @@ def get_nearby_volunteers(
         count = 0
 
     return {"count": count}
+
+
+# ────────────────────────────────────────────
+# POST /api/patient/emergency/dispatch
+# ────────────────────────────────────────────
+
+@router.post("/emergency/dispatch")
+async def dispatch_patient_emergency(
+    payload: dict,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    from app.routers.emergency import dispatch_emergency, DispatchRequest
+    patient_id = payload.get("patient_id")
+    req = DispatchRequest(
+        patient_id   = patient_id,
+        latitude     = payload.get("latitude", 19.0760),
+        longitude    = payload.get("longitude", 72.8777),
+        trigger_type = payload.get("trigger_type", "RED_BUTTON_CLICK"),
+        patient_name = payload.get("patient_name"),
+    )
+    return await dispatch_emergency(req, background_tasks, db)

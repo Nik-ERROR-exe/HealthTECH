@@ -84,4 +84,9 @@ export const conversationApi = {
   },
 };
 
+export const emergencyApi = {
+  dispatch: (data: { patient_id?: string; latitude?: number; longitude?: number; trigger_type?: string }) =>
+    api.post('/patient/emergency/dispatch', data),
+};
+
 export default api;

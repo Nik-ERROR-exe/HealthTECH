@@ -559,52 +559,48 @@ const PatientDashboard = () => {
                     ? `Your recovery is on track. Continue with "${data.active_course.course_name}". ${riskTier !== 'GREEN' ? 'Please complete the pending check‑in.' : 'Keep up the good work!'}`
                     : 'No active course. Share your Patient ID with your doctor.'}
                 </p>
-                {data.pending_question && (
-                  <button onClick={openAgentChat} className="mt-2 text-xs text-primary underline">Answer CARA's question</button>
-                )}
+
               </div>
             </div>
           </motion.div>
         </div>
 
-        {/* Quick Actions */}
-        {!data.pending_question && (
-          <motion.div custom={1} variants={fadeUp} className="grid sm:grid-cols-2 gap-4">
-            <button
-              onClick={openAgentChat}
-              className="w-full glass-card p-5 flex items-center justify-between hover:border-primary/40 transition-all group rounded-2xl hover:scale-[1.02]"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full gradient-primary flex items-center justify-center">
-                  <MessageSquare size={16} className="text-primary-foreground" />
-                </div>
-                <div className="text-left">
-                  <p className="text-sm font-semibold text-foreground">Start Check-in</p>
-                  <p className="text-xs text-muted-foreground">Talk to CARA – voice & text</p>
-                </div>
+        {/* Quick Actions — always visible */}
+        <motion.div custom={1} variants={fadeUp} className="grid sm:grid-cols-2 gap-4">
+          <button
+            onClick={openAgentChat}
+            className="w-full glass-card p-5 flex items-center justify-between hover:border-primary/40 transition-all group rounded-2xl hover:scale-[1.02]"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full gradient-primary flex items-center justify-center">
+                <MessageSquare size={16} className="text-primary-foreground" />
               </div>
-              <ChevronRight size={18} className="text-muted-foreground group-hover:text-primary transition-colors shrink-0" />
-            </button>
+              <div className="text-left">
+                <p className="text-sm font-semibold text-foreground">Start Daily Check-in</p>
+                <p className="text-xs text-muted-foreground">Talk to CARA – AI daily health check</p>
+              </div>
+            </div>
+            <ChevronRight size={18} className="text-muted-foreground group-hover:text-primary transition-colors shrink-0" />
+          </button>
 
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploadingWound}
-              className="w-full glass-card p-5 flex items-center justify-between hover:border-orange-400/40 transition-all group rounded-2xl hover:scale-[1.02]"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-orange-500 flex items-center justify-center">
-                  {uploadingWound ? <Loader2 size={16} className="text-white animate-spin" /> : <Camera size={16} className="text-white" />}
-                </div>
-                <div className="text-left">
-                  <p className="text-sm font-semibold text-foreground">Upload Wound Photo</p>
-                  <p className="text-xs text-muted-foreground">AI wound analysis (OpenCV)</p>
-                </div>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploadingWound}
+            className="w-full glass-card p-5 flex items-center justify-between hover:border-orange-400/40 transition-all group rounded-2xl hover:scale-[1.02]"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-orange-500 to-pink-500 flex items-center justify-center">
+                {uploadingWound ? <Loader2 size={16} className="text-white animate-spin" /> : <Camera size={16} className="text-white" />}
               </div>
-              <Upload size={18} className="text-muted-foreground group-hover:text-orange-400 transition-colors shrink-0" />
-            </button>
-            <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleWoundUpload} />
-          </motion.div>
-        )}
+              <div className="text-left">
+                <p className="text-sm font-semibold text-foreground">Upload Image & Chat</p>
+                <p className="text-xs text-muted-foreground">Upload a photo & ask CARA about your condition</p>
+              </div>
+            </div>
+            <Upload size={18} className="text-muted-foreground group-hover:text-orange-400 transition-colors shrink-0" />
+          </button>
+          <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleWoundUpload} />
+        </motion.div>
 
         {/* Active Course & Medications */}
         <div className="grid lg:grid-cols-3 gap-6">

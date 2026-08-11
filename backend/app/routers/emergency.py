@@ -19,7 +19,7 @@ from app.models.models import (
     User, VolunteerProfile, ImpactAlert, ImpactAlertStatus,
     PatientProfile, MedicalCourse, DoctorProfile,
 )
-from services.alert_service import send_sms_alert
+from services.alert_service import send_sms_alert, send_email_alert
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/emergency", tags=["Emergency"])
@@ -37,6 +37,14 @@ class ImpactReportRequest(BaseModel):
     reported_by_name:    Optional[str]   = "Unknown"
     reported_by_phone:   Optional[str]   = None
     reported_by_user_id: Optional[str]   = None
+
+class DispatchRequest(BaseModel):
+    patient_id:          Optional[str]   = None
+    latitude:            Optional[float] = 19.0760
+    longitude:           Optional[float] = 72.8777
+    trigger_type:        Optional[str]   = "RED_BUTTON_CLICK"
+    patient_name:        Optional[str]   = None
+    reported_by_phone:   Optional[str]   = None
 
 class LocationUpdate(BaseModel):
     latitude:  float
@@ -174,6 +182,147 @@ async def report_impact(
         "static_map_url":      _build_static_map_url(payload.latitude, payload.longitude) if payload.latitude else None,
         "volunteers_notified": notified,
         "live_page_url":       f"{BACKEND_BASE_URL}/emergency/{alert.id}/live",
+    }
+
+# ── POST /emergency/dispatch & /emergency/patient/dispatch ──────────────────
+
+@router.post("/dispatch")
+@router.post("/patient/dispatch")
+async def dispatch_emergency(
+    payload: DispatchRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    """
+    Geocoded Emergency Dispatch triggered by the patient Red Button click.
+    Sends Brevo email alerts with Google Maps deep-links and live tracking page URL.
+    """
+    lat = payload.latitude if payload.latitude is not None else 19.0760
+    lng = payload.longitude if payload.longitude is not None else 72.8777
+    maps_url = _build_maps_url(lat, lng)
+    location_label = _build_location_label(lat, lng)
+
+    patient_name = payload.patient_name or "CARENETRA Patient"
+    contact_email = None
+    contact_phone = payload.reported_by_phone
+    doctor_email = None
+    doctor_name = None
+
+    if payload.patient_id:
+        patient = db.query(PatientProfile).filter(
+            (PatientProfile.id == payload.patient_id) | (PatientProfile.user_id == payload.patient_id)
+        ).first()
+        if patient:
+            p_user = db.query(User).filter(User.id == patient.user_id).first()
+            if p_user:
+                patient_name = p_user.full_name
+                contact_email = patient.emergency_contact_email or p_user.email
+                if not contact_phone:
+                    contact_phone = patient.emergency_contact_phone
+            
+            course = db.query(MedicalCourse).filter(
+                MedicalCourse.patient_id == patient.id,
+                MedicalCourse.status == "ACTIVE"
+            ).first()
+            if course and course.doctor_id:
+                doc = db.query(DoctorProfile).filter(DoctorProfile.id == course.doctor_id).first()
+                if doc:
+                    doc_user = db.query(User).filter(User.id == doc.user_id).first()
+                    if doc_user:
+                        doctor_name = doc_user.full_name
+                        doctor_email = doc_user.email
+
+    alert = ImpactAlert(
+        id                  = str(uuid.uuid4()),
+        reported_by_name    = patient_name,
+        reported_by_phone   = contact_phone,
+        reported_by_user_id = payload.patient_id,
+        latitude            = lat,
+        longitude           = lng,
+        initial_latitude    = lat,
+        initial_longitude   = lng,
+        location_label      = location_label,
+        maps_url            = maps_url,
+        status              = ImpactAlertStatus.ACTIVE,
+        created_at          = datetime.now(timezone.utc),
+        updated_at          = datetime.now(timezone.utc),
+    )
+    db.add(alert)
+    db.flush()
+
+    live_page_url = f"{BACKEND_BASE_URL}/emergency/{alert.id}/live"
+
+    # ── High-priority Brevo email notification ────────────────────────────────
+    email_subject = f"🚨 EMERGENCY ALERT: Immediate Medical Action Required for {patient_name}"
+    email_body_text = (
+        f"CRITICAL MEDICAL EMERGENCY DISPATCH\n\n"
+        f"Patient {patient_name} triggered an urgent red button emergency alert!\n\n"
+        f"• Trigger Type: {payload.trigger_type}\n"
+        f"• Location Coordinates: {lat}, {lng}\n"
+        f"• Google Maps Location: {maps_url}\n"
+        f"• Live Emergency Tracking Page: {live_page_url}\n\n"
+        f"Please take immediate action."
+    )
+
+    recipients = []
+    if contact_email:
+        recipients.append((contact_email, patient_name))
+    if doctor_email and doctor_email != contact_email:
+        recipients.append((doctor_email, doctor_name or "Doctor"))
+    if not recipients:
+        recipients.append(("emergency@carenetra.com", patient_name))
+
+    for to_email, to_name in recipients:
+        background_tasks.add_task(
+            send_email_alert,
+            to_email=to_email,
+            to_name=to_name,
+            subject=email_subject,
+            body=email_body_text,
+        )
+
+    # ── SMS to nearby volunteers & contacts ──────────────────────────────────
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=5)
+    active_volunteers = db.query(VolunteerProfile).filter(
+        VolunteerProfile.is_available == True,
+        VolunteerProfile.last_active_at >= cutoff,
+        VolunteerProfile.current_latitude.isnot(None),
+        VolunteerProfile.current_longitude.isnot(None),
+    ).all()
+
+    notified = 0
+    patient_loc = (lat, lng)
+    for v in active_volunteers:
+        if v.current_latitude and v.current_longitude and v.phone:
+            dist = geodesic(patient_loc, (v.current_latitude, v.current_longitude)).km
+            if dist <= 10.0:
+                sms_body = (
+                    f"🚨 CARENETRA RED BUTTON DISPATCH\n"
+                    f"Patient: {patient_name}\n"
+                    f"Location: {location_label}\n"
+                    f"Maps: {maps_url}\n"
+                    f"Live Tracker: {live_page_url}"
+                )
+                background_tasks.add_task(send_sms_alert, v.phone, sms_body)
+                notified += 1
+
+    alert.volunteers_notified = notified
+    alert.sms_sent = notified > 0
+    db.commit()
+    db.refresh(alert)
+
+    logger.critical(
+        f"[EmergencyDispatch] RED BUTTON ALERT COMMITTED — alert_id={alert.id} "
+        f"patient={patient_name} lat={lat} lng={lng} maps={maps_url}"
+    )
+
+    return {
+        "status": "success",
+        "alert_id": alert.id,
+        "location_label": location_label,
+        "maps_url": maps_url,
+        "live_page_url": live_page_url,
+        "volunteers_notified": notified,
     }
 
 # ── PATCH /emergency/{id}/location (live GPS streaming) ─────────────────────
