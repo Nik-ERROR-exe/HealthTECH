@@ -52,14 +52,18 @@ const VolunteerDashboard = () => {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchDashboard = async (silent = false) => {
+    console.log('[VolunteerDashboard] fetchDashboard called, silent=', silent);
     if (!silent) setLoading(true);
     try {
       const currentLang = i18n.resolvedLanguage || i18n.language || 'en';
       const langCode = currentLang.split('-')[0];
+      console.log('[VolunteerDashboard] fetching /volunteer/dashboard, lang=', langCode);
       const res = await api.get('/volunteer/dashboard', { params: { language: langCode } });
+      console.log('[VolunteerDashboard] response:', res.data);
       setData(res.data);
       setLastRefresh(new Date());
     } catch (err: any) {
+      console.error('[VolunteerDashboard] fetch error:', err);
       if (!silent) toast.error(err.response?.data?.detail || 'Failed to load dashboard');
     } finally {
       if (!silent) setLoading(false);
