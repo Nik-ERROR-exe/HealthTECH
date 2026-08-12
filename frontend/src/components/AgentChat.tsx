@@ -151,9 +151,64 @@ const AgentChat = () => {
     return map[lang] || 'en-US';
   };
 
-  const speak = useCallback((text: string) => {
+  // ── STT (declared before speak so speak can reference startListening) ──────
+
+  const startListening = useCallback(async () => {
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) {
+      toast.error('Speech recognition is not supported in this browser.');
+      return;
+    }
+    
+    // Check getUserMedia permission explicitly for production HTTPS
+    try {
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        await navigator.mediaDevices.getUserMedia({ audio: true });
+      }
+    } catch (err: any) {
+      toast.error('Microphone Access Denied. Please enable microphone permissions in your browser.');
+      setIsListening(false);
+      return;
+    }
+
+    window.speechSynthesis.cancel();
+    const rec          = new SR();
+    rec.lang           = getLanguageCode(currentLanguage);
+    rec.interimResults = false;
+    rec.onresult = (e: any) => {
+      setTextInput(e.results[0][0].transcript);
+      setIsListening(false);
+    };
+    rec.onerror  = (e: any) => {
+      console.warn('SpeechRecognition error:', e);
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+        toast.error('Microphone Access Denied. Please check browser permissions.');
+      }
+      setIsListening(false);
+    };
+    rec.onend    = () => setIsListening(false);
+    recognitionRef.current = rec;
+    
+    try {
+      rec.start();
+      setIsListening(true);
+    } catch (e) {
+      console.warn('Failed to start speech recognition:', e);
+      setIsListening(false);
+    }
+  }, [currentLanguage]);
+
+  const stopListening = useCallback(() => {
+    recognitionRef.current?.stop();
+    setIsListening(false);
+  }, []);
+
+  const speak = useCallback((text: string, autoListenOnEnd = false) => {
     if (!hasTTS || !ttsEnabled) return;
     window.speechSynthesis.cancel();
+    if (window.speechSynthesis.paused) {
+      window.speechSynthesis.resume();
+    }
     const utterance = new SpeechSynthesisUtterance(text);
     const voices    = window.speechSynthesis.getVoices();
     const langCode = getLanguageCode(currentLanguage);
@@ -176,10 +231,18 @@ const AgentChat = () => {
     utterance.rate    = 0.92;
     utterance.pitch   = 1.08;
     utterance.onstart = () => setIsSpeaking(true);
-    utterance.onend   = () => setIsSpeaking(false);
-    utterance.onerror = () => setIsSpeaking(false);
+    utterance.onend   = () => {
+      setIsSpeaking(false);
+      if (autoListenOnEnd) {
+        setTimeout(() => startListening(), 300);
+      }
+    };
+    utterance.onerror = (err) => {
+      console.warn('TTS Speech error:', err);
+      setIsSpeaking(false);
+    };
     window.speechSynthesis.speak(utterance);
-  }, [hasTTS, ttsEnabled, currentLanguage]);
+  }, [hasTTS, ttsEnabled, currentLanguage, startListening]);
 
   const addMsg = useCallback((msg: ChatMessage) => {
     setMessages(prev => [
@@ -286,35 +349,6 @@ const AgentChat = () => {
     window.addEventListener('carenetra:open-agent-chat', handler);
     return () => window.removeEventListener('carenetra:open-agent-chat', handler);
   }, [phase, displayQuestion, addMsg, startSession]);
-
-  // When the widget opens with no active conversation, resume any pending
-  // (agent-triggered) check-in — e.g. the scheduler's 1-minute demo trigger or
-  // a `/checkin?session_id=...` deep link — otherwise start the session immediately.
-  useEffect(() => {
-    if (!open || phase !== 'idle' || messages.length > 0) return;
-
-    let cancelled = false;
-    (async () => {
-      setFaceAnalyzerEnabled(true);
-      try {
-        const res = await conversationApi.getActive();
-        if (cancelled) return;
-        if (res.data?.has_active_session) {
-          const firstQ = res.data.first_question as Question | undefined;
-          setSessionId(res.data.session_id);
-          if (firstQ) {
-            displayQuestion(firstQ);
-          } else {
-            startSession();
-          }
-          return;
-        }
-      } catch { /* fall through to starting a new session */ }
-      if (!cancelled) startSession();
-    })();
-
-    return () => { cancelled = true; };
-  }, [open, phase, messages.length, displayQuestion, startSession]);
 
   // ── Answer flow ──────────────────────────────────────────────────────────────
 
@@ -433,27 +467,7 @@ const AgentChat = () => {
     }
   };
 
-  // ── STT ───────────────────────────────────────────────────────────────────────
-
-  const startListening = useCallback(() => {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) return;
-    window.speechSynthesis.cancel();
-    const rec          = new SR();
-    rec.lang           = getLanguageCode(currentLanguage);
-    rec.interimResults = false;
-    rec.onresult = (e: any) => { setTextInput(e.results[0][0].transcript); setIsListening(false); };
-    rec.onerror  = () => setIsListening(false);
-    rec.onend    = () => setIsListening(false);
-    recognitionRef.current = rec;
-    rec.start();
-    setIsListening(true);
-  }, [currentLanguage]);
-
-  const stopListening = useCallback(() => {
-    recognitionRef.current?.stop();
-    setIsListening(false);
-  }, []);
+  // ── STT helpers (startListening / stopListening moved above speak) ──────────
 
   const handleClose = () => {
     window.speechSynthesis.cancel();
