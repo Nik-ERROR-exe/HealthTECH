@@ -251,6 +251,7 @@ async def escalation_agent_node(state: AgentState) -> AgentState:
                     emergency_contact_email=emergency_contact_email,
                     doctor_email=doctor_email,
                     alert_message=message,
+                    patient_id=state.get("patient_id"),
                 )
             except Exception as e:
                 logger.error(f"[EscalationAgent] send_emergency_notification failed: {e}")
