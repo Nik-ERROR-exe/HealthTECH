@@ -394,12 +394,29 @@ const DoctorDashboard = () => {
     const cleanedText = cleanTextForSpeech(reportText);
 
     window.speechSynthesis.cancel();
+    if (window.speechSynthesis.paused) {
+      window.speechSynthesis.resume();
+    }
+
     const utterance = new SpeechSynthesisUtterance(cleanedText);
-    utterance.lang = getLanguageCode(i18n.resolvedLanguage || i18n.language || 'en');
+    const targetLang = getLanguageCode(i18n.resolvedLanguage || i18n.language || 'en');
+    utterance.lang = targetLang;
     utterance.rate = 0.95;
     utterance.pitch = 1.0;
+
+    const voices = window.speechSynthesis.getVoices();
+    if (voices && voices.length > 0) {
+      const pref = voices.find(v => v.lang.toLowerCase().startsWith(targetLang.split('-')[0].toLowerCase())) ||
+                   voices.find(v => v.lang.startsWith('en'));
+      if (pref) utterance.voice = pref;
+    }
+
     utterance.onend = () => setSpeaking(false);
-    utterance.onerror = () => setSpeaking(false);
+    utterance.onerror = (e) => {
+      console.warn('SpeechSynthesis error:', e);
+      setSpeaking(false);
+    };
+
     speechRef.current = utterance;
     window.speechSynthesis.speak(utterance);
     setSpeaking(true);
@@ -428,6 +445,7 @@ const DoctorDashboard = () => {
     try {
       await doctorApi.scheduleCheckin(patientId, iso);
       toast.success(`${label} — ${t('doctorDashboard.scheduled', 'check-in scheduled')}`);
+      await fetchPatientDetail(patientId);
     } catch (err: any) {
       toast.error(err.response?.data?.detail || 'Failed to schedule check-in');
     } finally {
@@ -437,6 +455,22 @@ const DoctorDashboard = () => {
 
   const scheduleInMinutes = (patientId: string, name: string, minutes: number, label: string) =>
     handleScheduleCheckin(patientId, new Date(Date.now() + minutes * 60_000).toISOString(), label);
+
+  const getRecommendedIntervalHours = (tier?: string): number => {
+    switch (tier) {
+      case 'EMERGENCY': return 1;
+      case 'RED': return 3;
+      case 'ORANGE': return 6;
+      case 'YELLOW': return 12;
+      default: return 24;
+    }
+  };
+
+  const scheduleByRiskCadence = (patientId: string, name: string, tier?: string) => {
+    const hours = getRecommendedIntervalHours(tier);
+    const label = `AI Cadence (${hours}h interval)`;
+    handleScheduleCheckin(patientId, new Date(Date.now() + hours * 3600_000).toISOString(), label);
+  };
 
   const scheduleCustomTime = (patientId: string, name: string) => {
     if (!customTime) {
@@ -761,6 +795,15 @@ const DoctorDashboard = () => {
                         <p className="text-xs text-muted-foreground mb-1.5">⚡ {t('doctorDashboard.schedulePanel')}</p>
                         <div className="flex flex-wrap gap-2">
                           <button
+                            onClick={() => scheduleByRiskCadence(detail.patient_id, detail.full_name, detail.latest_risk_score?.tier)}
+                            disabled={schedulingId === detail.patient_id}
+                            title="Auto-calculates next check-in based on risk level (1h to 24h)"
+                            className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-purple-500/10 text-purple-400 border border-purple-500/30 hover:bg-purple-500/20 disabled:opacity-50 transition-colors"
+                          >
+                            {schedulingId === detail.patient_id ? <Loader2 size={12} className="animate-spin" /> : <Brain size={12} />}
+                            Auto-Apply Risk Cadence ({getRecommendedIntervalHours(detail.latest_risk_score?.tier)}h)
+                          </button>
+                          <button
                             onClick={() => scheduleInMinutes(detail.patient_id, detail.full_name, 1, t('doctorDashboard.triggerIn1Min'))}
                             disabled={schedulingId === detail.patient_id}
                             className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-500/10 text-amber-500 border border-amber-500/30 hover:bg-amber-500/20 disabled:opacity-50 transition-colors"
@@ -836,13 +879,21 @@ const DoctorDashboard = () => {
 
                   {detail.recent_check_ins?.[0]?.agent_report && (
                     <div className="glass-card rounded-3xl p-5 border-l-4 border-l-primary">
-                      <h3 className="text-sm font-semibold mb-3 flex items-center gap-2"><Sparkles size={15} className="text-primary" /> {t('doctorDashboard.latestAiReport')}</h3>
-                      <details className="group">
-                        <summary className="cursor-pointer text-xs text-primary hover:underline flex items-center gap-1 select-none">
-                          {t('doctorDashboard.readAloud')} · {t('doctorDashboard.latestAiReport')}
+                      <div className="flex items-center justify-between mb-3">
+                        <h3 className="text-sm font-semibold flex items-center gap-2"><Sparkles size={15} className="text-primary" /> {t('doctorDashboard.latestAiReport')}</h3>
+                        <button
+                          onClick={handleReadAiClinicalSummary}
+                          className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20 transition-all"
+                        >
+                          {speaking ? '⏹️ Stop' : '🔊 Read Aloud'}
+                        </button>
+                      </div>
+                      <details className="group" open>
+                        <summary className="cursor-pointer text-xs text-primary hover:underline flex items-center gap-1 select-none mb-2">
+                          {t('doctorDashboard.latestAiReport')}
                           <ChevronRight size={13} className="transition-transform group-open:rotate-90" />
                         </summary>
-                        <p className="mt-3 text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap">
+                        <p className="mt-2 text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap">
                           {detail.recent_check_ins[0].agent_report}
                         </p>
                       </details>
