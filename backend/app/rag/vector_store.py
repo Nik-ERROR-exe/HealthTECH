@@ -34,7 +34,11 @@ def get_client() -> QdrantClient:
     """Lazy singleton Qdrant client — cloud when configured, else local."""
     if settings.use_cloud_qdrant:
         logger.info("[RAG] Using Qdrant Cloud")
-        return QdrantClient(url=settings.QDRANT_URL, api_key=settings.QDRANT_API_KEY)
+        return QdrantClient(
+            url=settings.QDRANT_URL,
+            api_key=settings.QDRANT_API_KEY,
+            timeout=120,  # seconds — avoids write timeout on slow connections
+        )
     return QdrantClient(path=str(_data_path()))
 
 
