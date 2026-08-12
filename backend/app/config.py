@@ -81,7 +81,10 @@ class Settings(BaseSettings):
     @property
     def database_url(self) -> str:
         if self.DATABASE_URL:
-            return self.DATABASE_URL
+            url = self.DATABASE_URL
+            if url.startswith("postgres://"):
+                url = url.replace("postgres://", "postgresql://", 1)
+            return url
         return (
             f"postgresql://{self.DB_USER}:{self.DB_PASSWORD}"
             f"@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
