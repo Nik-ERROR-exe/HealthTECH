@@ -16,7 +16,7 @@ import DashboardLayout from '@/components/DashboardLayout';
 import EmergencyBanner from '@/components/EmergencyBanner';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
-import api, { doctorApi, triggerCheckin } from '@/lib/api';
+import api, { doctorApi, triggerCheckin, getPendingAlerts, dispatchAmbulance, acknowledgeAlert } from '@/lib/api';
 import Lenis from '@studio-freight/lenis';
 import { getUser } from '@/lib/auth';
 import {
@@ -216,6 +216,91 @@ const DoctorDashboard = () => {
   const [assigning, setAssigning] = useState(false);
   const [practiceStats, setPracticeStats] = useState<PracticeStats | null>(null);
   const [volunteerStatus, setVolunteerStatus] = useState<{ online: number; within_5km: number } | null>(null);
+
+  // ── Pending Emergency Alerts State & Audio Alarm ──
+  const [pendingEmergencyAlerts, setPendingEmergencyAlerts] = useState<any[]>([]);
+  const [showAlertModal, setShowAlertModal] = useState(false);
+  const [currentEmergencyAlert, setCurrentEmergencyAlert] = useState<any | null>(null);
+  const [dispatchingAmbulance, setDispatchingAmbulance] = useState(false);
+  const alarmAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    alarmAudioRef.current = new Audio('/alert.mp3');
+    alarmAudioRef.current.loop = true;
+
+    const checkPendingAlerts = async () => {
+      try {
+        const data = await getPendingAlerts();
+        if (Array.isArray(data) && data.length > 0) {
+          setPendingEmergencyAlerts(data);
+          if (!showAlertModal) {
+            const latest = data[0];
+            setCurrentEmergencyAlert(latest);
+            setShowAlertModal(true);
+            if (alarmAudioRef.current) {
+              alarmAudioRef.current.play().catch(e => console.warn('Audio play blocked', e));
+            }
+          }
+        }
+      } catch {
+        // ignore polling errors
+      }
+    };
+
+    checkPendingAlerts();
+    const interval = setInterval(checkPendingAlerts, 5000);
+    return () => {
+      clearInterval(interval);
+      if (alarmAudioRef.current) {
+        alarmAudioRef.current.pause();
+        alarmAudioRef.current.currentTime = 0;
+      }
+    };
+  }, [showAlertModal]);
+
+  const handleDispatchAmbulance = async () => {
+    if (!currentEmergencyAlert) return;
+    setDispatchingAmbulance(true);
+    try {
+      await dispatchAmbulance(currentEmergencyAlert.alert_id);
+      toast.success('🚑 Ambulance dispatched successfully!');
+      if (alarmAudioRef.current) {
+        alarmAudioRef.current.pause();
+        alarmAudioRef.current.currentTime = 0;
+      }
+      setShowAlertModal(false);
+      setCurrentEmergencyAlert(null);
+      fetchDashboard();
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Failed to dispatch ambulance');
+    } finally {
+      setDispatchingAmbulance(false);
+    }
+  };
+
+  const handleCallPatient = () => {
+    if (currentEmergencyAlert?.patient_phone && currentEmergencyAlert.patient_phone !== 'N/A') {
+      window.location.href = `tel:${currentEmergencyAlert.patient_phone}`;
+    } else {
+      toast.info(`Calling patient ${currentEmergencyAlert?.patient_name || ''}... (demo)`);
+    }
+  };
+
+  const handleAcknowledgeAlert = async () => {
+    if (!currentEmergencyAlert) return;
+    try {
+      await acknowledgeAlert(currentEmergencyAlert.alert_id);
+      toast.info('Alert acknowledged');
+    } catch {
+      // ignore
+    }
+    if (alarmAudioRef.current) {
+      alarmAudioRef.current.pause();
+      alarmAudioRef.current.currentTime = 0;
+    }
+    setShowAlertModal(false);
+    setCurrentEmergencyAlert(null);
+  };
 
   useEffect(() => { fetchDashboard(); fetchPracticeStats(); fetchVolunteerStatus(); }, []);
 
@@ -1055,6 +1140,87 @@ const DoctorDashboard = () => {
             </div>
           </div>
         </motion.div>
+
+        {/* ── Real-time Emergency Alert Popup Modal ── */}
+        <AnimatePresence>
+          {showAlertModal && currentEmergencyAlert && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md p-4"
+            >
+              <motion.div
+                initial={{ scale: 0.9, opacity: 0, y: 20 }}
+                animate={{ scale: 1, opacity: 1, y: 0 }}
+                exit={{ scale: 0.9, opacity: 0, y: 20 }}
+                className="bg-card border-2 border-red-500/60 text-card-foreground w-full max-w-lg rounded-3xl p-6 shadow-[0_0_50px_rgba(239,68,68,0.4)] relative overflow-hidden space-y-5"
+              >
+                <div className="absolute top-0 right-0 left-0 h-2 bg-gradient-to-r from-red-600 via-orange-500 to-red-600 animate-pulse" />
+
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-10 h-10 rounded-full bg-red-500/20 text-red-500 border border-red-500/40 flex items-center justify-center animate-bounce">
+                      <AlertTriangle size={22} />
+                    </div>
+                    <div>
+                      <h2 className="text-lg font-bold text-red-500 flex items-center gap-2">
+                        🚨 EMERGENCY ALERT
+                      </h2>
+                      <p className="text-xs text-muted-foreground">Action required immediately</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={handleAcknowledgeAlert}
+                    className="p-2 text-muted-foreground hover:text-foreground rounded-lg hover:bg-muted transition-colors"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+
+                <div className="bg-muted/40 rounded-2xl p-4 border border-border/50 space-y-2 text-sm">
+                  <div className="flex justify-between items-center">
+                    <span className="text-muted-foreground">Patient:</span>
+                    <span className="font-semibold text-foreground text-base">{currentEmergencyAlert.patient_name}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-muted-foreground">Risk Tier:</span>
+                    <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-red-500/20 text-red-400 border border-red-500/40">
+                      {currentEmergencyAlert.risk_tier}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-muted-foreground">Phone:</span>
+                    <span className="font-mono text-foreground">{currentEmergencyAlert.patient_phone}</span>
+                  </div>
+                  <div className="pt-2 border-t border-border/50">
+                    <p className="text-xs font-medium text-muted-foreground mb-1">Alert Summary / Reason:</p>
+                    <p className="text-sm font-medium text-foreground bg-background/50 p-2.5 rounded-xl border border-border/30">
+                      {currentEmergencyAlert.summary}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-3 pt-2">
+                  <button
+                    onClick={handleDispatchAmbulance}
+                    disabled={dispatchingAmbulance}
+                    className="flex-1 flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-red-600 hover:bg-red-700 text-white font-semibold text-sm shadow-lg shadow-red-600/30 transition-all disabled:opacity-50"
+                  >
+                    {dispatchingAmbulance ? <Loader2 size={16} className="animate-spin" /> : '🚑 Dispatch Ambulance'}
+                  </button>
+                  <button
+                    onClick={handleCallPatient}
+                    className="flex-1 flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm shadow-lg shadow-blue-600/30 transition-all"
+                  >
+                    📞 Call Patient
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
       </DashboardLayout>
     </>
   );

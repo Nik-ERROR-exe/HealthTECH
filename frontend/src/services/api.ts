@@ -4,11 +4,15 @@ import api, {
   emergencyApi,
   checkinApi,
   imageApi,
+  alertsApi,
   triggerCheckin,
   getPendingCheckin,
   consumePendingCheckin,
   uploadImage,
   sendImageChat,
+  getPendingAlerts,
+  dispatchAmbulance,
+  acknowledgeAlert,
 } from '@/lib/api';
 
 export {
@@ -17,11 +21,15 @@ export {
   emergencyApi,
   checkinApi,
   imageApi,
+  alertsApi,
   triggerCheckin,
   getPendingCheckin,
   consumePendingCheckin,
   uploadImage,
   sendImageChat,
+  getPendingAlerts,
+  dispatchAmbulance,
+  acknowledgeAlert,
 };
 
 export default api;

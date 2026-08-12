@@ -30,6 +30,7 @@ from app.routers.volunteer import router as volunteer_router
 from app.routers.relative import router as relative_router
 from app.routers.checkin import router as checkin_router
 from app.routers.image import router as image_router
+from app.routers.alerts import router as alerts_router
 
 
 @asynccontextmanager
@@ -109,6 +110,7 @@ def create_app() -> FastAPI:
     app.include_router(relative_router, prefix="/api")
     app.include_router(checkin_router, prefix="/api")
     app.include_router(image_router, prefix="/api")
+    app.include_router(alerts_router, prefix="/api")
 
 
     # ── Health check ──

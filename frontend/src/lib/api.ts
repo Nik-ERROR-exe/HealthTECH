@@ -113,10 +113,19 @@ export const imageApi = {
     api.post('/image/chat', { analysis_id: analysisId, query }),
 };
 
+export const alertsApi = {
+  getPending: () => api.get('/alerts/pending').then(res => res.data),
+  dispatch: (alertId: string, notes?: string) => api.post('/alerts/dispatch', { alert_id: alertId, notes }),
+  acknowledge: (alertId: string) => api.post(`/alerts/${alertId}/acknowledge`),
+};
+
 export const triggerCheckin = (patientId: string, delaySeconds?: number) => checkinApi.triggerCheckin(patientId, delaySeconds);
 export const getPendingCheckin = () => checkinApi.getPendingCheckin();
 export const consumePendingCheckin = (pendingId?: string) => checkinApi.consumePendingCheckin(pendingId);
 export const uploadImage = (file: File) => imageApi.uploadImage(file);
 export const sendImageChat = (analysisId: string, query: string) => imageApi.sendImageChat(analysisId, query);
+export const getPendingAlerts = () => alertsApi.getPending();
+export const dispatchAmbulance = (alertId: string, notes?: string) => alertsApi.dispatch(alertId, notes);
+export const acknowledgeAlert = (alertId: string) => alertsApi.acknowledge(alertId);
 
 export default api;

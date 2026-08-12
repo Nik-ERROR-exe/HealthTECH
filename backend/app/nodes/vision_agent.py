@@ -7,7 +7,9 @@ wrong endpoint, timeout), falls back to the local OpenCV heuristics pipeline.
 Maintains full compatibility with existing AgentState and database schema.
 """
 import base64
+import json
 import logging
+import re
 from pathlib import Path
 
 import cv2
@@ -36,49 +38,119 @@ _LANGUAGE_RULE = (
 # ─────────────────────────────────────────────
 # NVIDIA multimodal VLM (primary engine)
 # ─────────────────────────────────────────────
-_VLM_SYSTEM_PROMPT = (
-    "You are a clinical wound assessment assistant. Analyze this post-surgical "
-    "image for signs of erythema (redness), surgical site swelling, abnormal "
-    "discharge/pus, and incision dehiscence. Provide a concise 2-sentence "
-    "clinical summary and rate visual severity as LOW, MEDIUM, or HIGH."
+_VLM_JSON_SYSTEM_PROMPT = (
+    "You are a clinical wound assessment assistant. Analyze the provided image and respond strictly with a valid JSON object matching this schema:\n"
+    "{\n"
+    '  "is_wound": boolean (true if image shows a clinical/surgical wound or incision; false if image is non-clinical/non-wound such as a face, landscape, room, food, or object),\n'
+    '  "severity": string ("NORMAL", "MILD", "MODERATE", or "SEVERE"),\n'
+    '  "score": float (numeric score from 0.0 to 10.0 representing visual severity; 0.0 if not a wound),\n'
+    '  "summary": string (concise 2-sentence clinical assessment summary),\n'
+    '  "redness_detected": boolean (true if erythema/redness is present),\n'
+    '  "swelling_detected": boolean (true if swelling/edema is present),\n'
+    '  "texture_change_detected": boolean (true if texture change, pus, dehiscence, or abnormal tissue is present)\n'
+    "}\n"
+    "Respond ONLY with raw JSON. No markdown backticks, no extra text."
 )
 
 
 def _vlm_system_prompt(language: str) -> str:
-    """VLM system prompt pinned to the patient's language (no FR/ES drift)."""
-    return _VLM_SYSTEM_PROMPT + _LANGUAGE_RULE.format(language=language)
+    """VLM system prompt pinned to the patient's language."""
+    return _VLM_JSON_SYSTEM_PROMPT + _LANGUAGE_RULE.format(language=language)
 
 
 def _parse_vlm_result(text: str) -> dict:
-    """Map the VLM's free-text response to the canonical result shape."""
+    """Fallback text parsing if JSON extraction fails."""
     t = (text or "").strip()[:300]
     up = t.upper()
-    if "HIGH" in up:
+    if "HIGH" in up or "SEVERE" in up:
         severity, status = 8.0, "SEVERE"
-    elif "LOW" in up:
+    elif "LOW" in up or "NORMAL" in up:
         severity, status = 1.0, "NORMAL"
     else:
         severity, status = 5.0, "MODERATE"
     return {
+        "is_wound": True,
         "score": severity,
         "status": status,
+        "severity": status,
         "summary": t or "NVIDIA VLM returned no summary.",
+        "redness_detected": ("redness" in t.lower() or "erythema" in t.lower()),
+        "swelling_detected": ("swelling" in t.lower() or "edema" in t.lower()),
+        "texture_change_detected": ("texture" in t.lower() or "pus" in t.lower()),
         "raw_response": text or "",
     }
 
 
+def _parse_vlm_json_result(text: str) -> dict:
+    """Parse VLM JSON output and normalize structured fields."""
+    raw = (text or "").strip()
+    match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw, re.DOTALL)
+    if match:
+        raw_json = match.group(1).strip()
+    else:
+        start = raw.find("{")
+        end = raw.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            raw_json = raw[start : end + 1]
+        else:
+            raw_json = raw
+
+    try:
+        data = json.loads(raw_json)
+        is_wound = bool(data.get("is_wound", True))
+
+        if not is_wound:
+            return {
+                "is_wound": False,
+                "score": 0.0,
+                "status": "NORMAL",
+                "severity": "NORMAL",
+                "summary": "The uploaded image does not appear to contain a visible clinical wound.",
+                "redness_detected": False,
+                "swelling_detected": False,
+                "texture_change_detected": False,
+                "raw_response": text,
+            }
+
+        sev_str = str(data.get("severity", "NORMAL")).upper()
+        if sev_str not in ("NORMAL", "MILD", "MODERATE", "SEVERE"):
+            if "HIGH" in sev_str or "SEVERE" in sev_str:
+                sev_str = "SEVERE"
+            elif "LOW" in sev_str or "NORMAL" in sev_str:
+                sev_str = "NORMAL"
+            else:
+                sev_str = "MODERATE"
+
+        score = float(data.get("score", 0.0))
+        score = max(0.0, min(10.0, score))
+
+        summary = str(data.get("summary", "")).strip() or "Wound image analyzed."
+
+        return {
+            "is_wound": True,
+            "score": score,
+            "status": sev_str,
+            "severity": sev_str,
+            "summary": summary,
+            "redness_detected": bool(data.get("redness_detected", False)),
+            "swelling_detected": bool(data.get("swelling_detected", False)),
+            "texture_change_detected": bool(data.get("texture_change_detected", False)),
+            "raw_response": text,
+        }
+    except Exception as exc:
+        logger.warning(f"[VisionAgent] JSON parse error: {exc}; falling back to text analysis")
+        return _parse_vlm_result(text)
+
+
 async def classify_with_nvidia_vlm(image_path: str, language: str = "en") -> dict | None:
     """
-    Classify a wound image with the NVIDIA multimodal VLM. Tries the configured
-    base URL (default NVIDIA_BASE_URL = integrate), then auto-retries the NVIDIA
-    vision endpoint (ai.api.nvidia.com/v1). Returns None on any failure so the
-    caller falls back to the local OpenCV pipeline (never fatal).
+    Classify a wound image with the NVIDIA multimodal VLM (JSON output).
+    Returns None on API failure to engage OpenCV fallback.
     """
     if not settings.NVIDIA_API_KEY:
         logger.warning("[VisionAgent] NVIDIA_API_KEY not set — using OpenCV fallback")
         return None
 
-    # Encode the image as a base64 data URI
     ext = Path(image_path).suffix.lower()
     mime = {
         "": "image/jpeg", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
@@ -103,11 +175,7 @@ async def classify_with_nvidia_vlm(image_path: str, language: str = "en") -> dic
         {"role": "user", "content": [
             {
                 "type": "text",
-                "text": (
-                    "Assess this post-surgical wound image and give a concise "
-                    "2-sentence clinical summary plus a severity rating of "
-                    "LOW, MEDIUM, or HIGH."
-                ),
+                "text": "Analyze this image and return the structured JSON assessment matching the requested schema.",
             },
             {"type": "image_url", "image_url": {"url": data_uri}},
         ]},
@@ -116,17 +184,29 @@ async def classify_with_nvidia_vlm(image_path: str, language: str = "en") -> dic
     for base in bases:
         try:
             client = AsyncOpenAI(base_url=base, api_key=settings.NVIDIA_API_KEY)
-            resp = await client.chat.completions.create(
-                model=settings.VISION_LLM_MODEL,
-                messages=messages,
-                max_tokens=300,
-                temperature=0.2,
-                timeout=15.0,
-            )
+            try:
+                resp = await client.chat.completions.create(
+                    model=settings.VISION_LLM_MODEL,
+                    messages=messages,
+                    response_format={"type": "json_object"},
+                    max_tokens=350,
+                    temperature=0.2,
+                    timeout=15.0,
+                )
+            except Exception as format_exc:
+                logger.info(f"[VisionAgent] response_format json_object not supported on {base}, retrying without it: {format_exc}")
+                resp = await client.chat.completions.create(
+                    model=settings.VISION_LLM_MODEL,
+                    messages=messages,
+                    max_tokens=350,
+                    temperature=0.2,
+                    timeout=15.0,
+                )
+
             text = (resp.choices[0].message.content or "").strip()
             if text:
                 logger.info(f"[VisionAgent] NVIDIA VLM success via {base}")
-                return _parse_vlm_result(text)
+                return _parse_vlm_json_result(text)
         except Exception as exc:
             logger.warning(f"[VisionAgent] NVIDIA VLM failed on {base}: {exc}")
 
@@ -359,6 +439,11 @@ async def vision_agent_node(state: AgentState) -> AgentState:
         language=state.get("language") or "en",
     )
 
+    is_wound = result.get("is_wound", True)
+    redness = result.get("redness_detected", False) if is_wound else False
+    swelling = result.get("swelling_detected", False) if is_wound else False
+    texture = result.get("texture_change_detected", False) if is_wound else False
+
     # Persist to database
     wound_analysis_id = None
     try:
@@ -368,9 +453,9 @@ async def vision_agent_node(state: AgentState) -> AgentState:
             image_url=wound_path,
             severity=severity_enum,
             raw_llm_response=result["raw_response"],
-            redness_detected=("redness" in result["summary"].lower()),
-            swelling_detected=("swelling" in result["summary"].lower()),
-            texture_change_detected=("texture" in result["summary"].lower()),
+            redness_detected=redness,
+            swelling_detected=swelling,
+            texture_change_detected=texture,
             analysis_summary=result["summary"],
             ai_advice=advice,
             wound_score=result["score"],
@@ -392,9 +477,9 @@ async def vision_agent_node(state: AgentState) -> AgentState:
         "wound_severity": severity_str,
         "wound_score": result["score"],
         "wound_analysis_id": wound_analysis_id,
-        "redness_detected": ("redness" in result["summary"].lower()),
-        "swelling_detected": ("swelling" in result["summary"].lower()),
-        "texture_change_detected": ("texture" in result["summary"].lower()),
+        "redness_detected": redness,
+        "swelling_detected": swelling,
+        "texture_change_detected": texture,
         "wound_analysis_summary": result["summary"],
         "wound_ai_advice": advice,
         "errors": errors,

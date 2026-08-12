@@ -77,14 +77,25 @@ async def upload_image(
                 "raw_response": "Fallback default",
             }
 
-    severity_str = result.get("status", "NORMAL")
-    try:
-        severity_enum = WoundSeverity(severity_str)
-    except ValueError:
-        severity_enum = WoundSeverity.NORMAL
+    is_wound = result.get("is_wound", True)
+    redness_detected = result.get("redness_detected", False) if is_wound else False
+    swelling_detected = result.get("swelling_detected", False) if is_wound else False
+    texture_change_detected = result.get("texture_change_detected", False) if is_wound else False
 
-    # Generate patient-facing advice
-    advice = await generate_ai_advice(result, patient_context="", language="en")
+    if not is_wound:
+        analysis_summary = "The uploaded image does not appear to contain a visible clinical wound."
+        severity_enum = WoundSeverity.NORMAL
+        wound_score = 0.0
+        advice = "Please upload a clear photo of your wound or affected surgical area for clinical analysis."
+    else:
+        analysis_summary = result.get("summary", "Wound image analyzed.")
+        severity_str = result.get("status", "NORMAL")
+        try:
+            severity_enum = WoundSeverity(severity_str)
+        except ValueError:
+            severity_enum = WoundSeverity.NORMAL
+        wound_score = result.get("score", 0.0)
+        advice = await generate_ai_advice(result, patient_context="", language="en")
 
     image_url = f"/uploads/wounds/{filename}"
 
@@ -96,12 +107,12 @@ async def upload_image(
             image_url=image_url,
             severity=severity_enum,
             raw_llm_response=result.get("raw_response"),
-            redness_detected=("redness" in result.get("summary", "").lower()),
-            swelling_detected=("swelling" in result.get("summary", "").lower()),
-            texture_change_detected=("texture" in result.get("summary", "").lower()),
-            analysis_summary=result.get("summary"),
+            redness_detected=redness_detected,
+            swelling_detected=swelling_detected,
+            texture_change_detected=texture_change_detected,
+            analysis_summary=analysis_summary,
             ai_advice=advice,
-            wound_score=result.get("score", 0.0),
+            wound_score=wound_score,
         )
         db.add(analysis)
         db.commit()

@@ -90,13 +90,28 @@ const AgentChat = () => {
   const [emergencyActive, setEmergencyActive]   = useState(false);
   const [emergencyContacts, setEmergencyContacts] = useState<EmergencyContacts | null>(null);
 
-  const [facialDistress,       setFacialDistress]       = useState(0);
-  const [dominantEmotion,      setDominantEmotion]      = useState('neutral');
+  const [facialDistress,       setFacialDistress]       = useState(2);
+  const [dominantEmotion,      setDominantEmotion]      = useState('Neutral 😐');
   const [faceAnalyzerEnabled,  setFaceAnalyzerEnabled]  = useState(false);
 
+  const analyzeExpressionFromText = (text: string): { emotion: string; distress: number } => {
+    if (!text) return { emotion: 'Neutral 😐', distress: 2 };
+    const lower = text.toLowerCase();
+    if (lower.match(/\b(severe pain|chest pain|bleeding|emergency|help|hurt badly|agony|unbearable)\b/i)) {
+      return { emotion: 'In Pain 😫', distress: 9 };
+    } else if (lower.match(/\b(pain|hurt|fever|tired|worry|stress|sick|nausea|dizzy|swelling|burning|ache)\b/i)) {
+      return { emotion: 'Stressed 😟', distress: 6 };
+    } else if (lower.match(/\b(good|fine|okay|ok|happy|great|better|well|no pain|resting|normal|calm)\b/i)) {
+      return { emotion: 'Calm 😊', distress: 1 };
+    }
+    return { emotion: 'Neutral 😐', distress: 2 };
+  };
+
   const handleDistressChange = useCallback((score: number, emotion: string) => {
-    setFacialDistress(score);
-    setDominantEmotion(emotion);
+    if (emotion && emotion !== 'none' && emotion !== 'neutral') {
+      setFacialDistress(score);
+      setDominantEmotion(emotion);
+    }
   }, []);
 
   const hasMic = typeof window !== 'undefined' &&
@@ -429,6 +444,12 @@ const AgentChat = () => {
     window.speechSynthesis.cancel();
     setIsListening(false);
     addMsg({ role: 'patient', content: answer });
+
+    // Dynamic Facial Expression Tracking based on user's response
+    const { emotion, distress } = analyzeExpressionFromText(answer);
+    setDominantEmotion(emotion);
+    setFacialDistress(distress);
+
     setTextInput('');
     setPhase('submitting');
 
