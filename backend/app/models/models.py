@@ -589,6 +589,7 @@ class Alert(Base):
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     resolved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
+    notified_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True, default=None)
 
     patient: Mapped["PatientProfile"] = relationship("PatientProfile", back_populates="alerts")
     doctor: Mapped["DoctorProfile"] = relationship("DoctorProfile", back_populates="alerts")

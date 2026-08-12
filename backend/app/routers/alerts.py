@@ -34,22 +34,30 @@ async def get_pending_alerts(
 ):
     """
     Doctor Pending Alerts Polling Endpoint:
-    Returns all emergency alerts with status = PENDING for the logged-in doctor.
+    Returns only NEW emergency alerts (status = PENDING, notified_at IS NULL).
+    After fetching, stamps notified_at = NOW() so the same alert is never returned again.
     """
     doctor = db.query(DoctorProfile).filter(DoctorProfile.user_id == current_user.id).first()
     if not doctor:
         raise HTTPException(status_code=403, detail="Doctor profile not found")
 
-    # Fetch alerts where status = PENDING and assigned to doctor or unassigned
+    # Fetch only alerts that are PENDING and have NOT been notified yet
     pending_alerts = (
         db.query(Alert)
         .filter(
             Alert.status == AlertStatus.PENDING,
+            Alert.notified_at == None,
             (Alert.doctor_id == doctor.id) | (Alert.doctor_id == None),
         )
         .order_by(Alert.created_at.desc())
         .all()
     )
+
+    # Mark them as notified so they won't be returned on the next poll
+    now = datetime.now(timezone.utc)
+    for alert in pending_alerts:
+        alert.notified_at = now
+    db.commit()
 
     result = []
     for alert in pending_alerts:
@@ -69,7 +77,7 @@ async def get_pending_alerts(
             "patient_phone": phone or "N/A",
             "risk_tier": alert.alert_type.value if hasattr(alert.alert_type, "value") else str(alert.alert_type or "EMERGENCY"),
             "summary": alert.message or "Emergency alert triggered",
-            "created_at": alert.created_at.isoformat() if alert.created_at else datetime.now(timezone.utc).isoformat(),
+            "created_at": alert.created_at.isoformat() if alert.created_at else now.isoformat(),
         })
 
     return result
@@ -92,6 +100,7 @@ async def dispatch_ambulance(
     now = datetime.now(timezone.utc)
     alert.status = AlertStatus.DISPATCHED
     alert.resolved_at = now
+    alert.notified_at = alert.notified_at or now
     alert.dispatch_confirmed_by = current_user.full_name
     alert.dispatch_confirmed_at = now
     alert.ambulance_response = req.notes or "Ambulance dispatched"
@@ -114,14 +123,16 @@ async def acknowledge_alert(
 ):
     """
     Acknowledge/Dismiss Alert Endpoint:
-    Marks alert status as ACKNOWLEDGED.
+    Marks alert status as ACKNOWLEDGED and ensures notified_at is set.
     """
     alert = db.query(Alert).filter(Alert.id == alert_id).first()
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
 
+    now = datetime.now(timezone.utc)
     alert.status = AlertStatus.ACKNOWLEDGED
-    alert.resolved_at = datetime.now(timezone.utc)
+    alert.resolved_at = now
+    alert.notified_at = alert.notified_at or now
     db.commit()
 
     return {"success": True, "alert_id": str(alert.id)}
