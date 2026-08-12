@@ -108,6 +108,7 @@ const AgentChat = () => {
   const recognitionRef = useRef<any>(null);
   const voicesLoaded   = useRef(false);
   const alertAudioRef  = useRef<HTMLAudioElement | null>(null);
+  const voiceAutoSendTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Emergency alert ───────────────────────────────────────────────────────
   const stopAlertSound = useCallback(() => {
@@ -176,8 +177,29 @@ const AgentChat = () => {
     rec.lang           = getLanguageCode(currentLanguage);
     rec.interimResults = false;
     rec.onresult = (e: any) => {
-      setTextInput(e.results[0][0].transcript);
+      const transcript = e.results[0][0].transcript;
+      setTextInput(transcript);
       setIsListening(false);
+
+      // ── Voice auto-send: 2-second silence timer ──
+      // Clear any previous timer to restart the countdown
+      if (voiceAutoSendTimer.current) {
+        clearTimeout(voiceAutoSendTimer.current);
+      }
+      voiceAutoSendTimer.current = setTimeout(() => {
+        // Only auto-send if the text still matches what we transcribed
+        // (i.e. the user didn't manually edit it)
+        setTextInput((current: string) => {
+          if (current.trim() && current.trim() === transcript.trim()) {
+            // Use a DOM event to trigger submit from the timeout context
+            window.dispatchEvent(new CustomEvent('carenetra:voice-auto-send', {
+              detail: { text: current.trim() },
+            }));
+          }
+          return current;
+        });
+        voiceAutoSendTimer.current = null;
+      }, 2000);
     };
     rec.onerror  = (e: any) => {
       console.warn('SpeechRecognition error:', e);
@@ -185,6 +207,11 @@ const AgentChat = () => {
         toast.error('Microphone Access Denied. Please check browser permissions.');
       }
       setIsListening(false);
+      // Clear auto-send timer on error
+      if (voiceAutoSendTimer.current) {
+        clearTimeout(voiceAutoSendTimer.current);
+        voiceAutoSendTimer.current = null;
+      }
     };
     rec.onend    = () => setIsListening(false);
     recognitionRef.current = rec;
@@ -349,6 +376,25 @@ const AgentChat = () => {
     window.addEventListener('carenetra:open-agent-chat', handler);
     return () => window.removeEventListener('carenetra:open-agent-chat', handler);
   }, [phase, displayQuestion, addMsg, startSession]);
+
+  // ── Voice auto-send listener (fires after 2s silence) ──────────────────────
+  useEffect(() => {
+    const handler = (e: any) => {
+      const text = e?.detail?.text;
+      if (text && phase === 'chatting' && currentQ) {
+        submitAnswer(text);
+      }
+    };
+    window.addEventListener('carenetra:voice-auto-send', handler);
+    return () => {
+      window.removeEventListener('carenetra:voice-auto-send', handler);
+      // Cleanup timer on unmount
+      if (voiceAutoSendTimer.current) {
+        clearTimeout(voiceAutoSendTimer.current);
+        voiceAutoSendTimer.current = null;
+      }
+    };
+  }, [phase, currentQ]);
 
   // ── Answer flow ──────────────────────────────────────────────────────────────
 

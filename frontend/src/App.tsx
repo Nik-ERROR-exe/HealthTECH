@@ -1,11 +1,14 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useEffect, useRef } from 'react';
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Route, Routes, useNavigate } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { DashboardSkeleton } from '@/components/LoadingSkeleton';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import DemoPage from '@/pages/DemoPage';
+import { CheckinProvider } from '@/contexts/CheckinContext';
+import { usePendingCheckin } from '@/hooks/usePendingCheckin';
+import { toast } from 'sonner';
 
 const LandingPage = lazy(() => import('./pages/LandingPage'));
 const LoginPage = lazy(() => import('./pages/LoginPage'));
@@ -21,39 +24,70 @@ const NotFound = lazy(() => import('./pages/NotFound'));
 
 const queryClient = new QueryClient();
 
+const PendingCheckinWatcher = () => {
+  const { pendingCheckin, consumePending } = usePendingCheckin(5000);
+  const handledCheckinsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (pendingCheckin && pendingCheckin.hasPending) {
+      const idKey = pendingCheckin.pendingId || pendingCheckin.checkInId;
+      if (idKey && handledCheckinsRef.current.has(idKey)) {
+        return;
+      }
+      if (idKey) {
+        handledCheckinsRef.current.add(idKey);
+      }
+
+      toast.info('Time for your scheduled health check-in!', {
+        description: 'Opening your health check-in...',
+      });
+      window.dispatchEvent(new CustomEvent('carenetra:open-agent-chat', {
+        detail: { check_in_id: pendingCheckin.checkInId }
+      }));
+      consumePending(pendingCheckin.pendingId);
+    }
+  }, [pendingCheckin, consumePending]);
+
+  return null;
+};
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
-      <Sonner />
-      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-        <Suspense fallback={<DashboardSkeleton />}>
-          <Routes>
-            <Route path="/" element={<LandingPage />} />
-            <Route path="/demo" element={<DemoPage />} />
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/register" element={<RegisterPage />} />
-            <Route path="/patient/dashboard" element={<ProtectedRoute requiredRole="PATIENT"><PatientDashboard /></ProtectedRoute>} />
-            <Route path="/checkin" element={<ProtectedRoute requiredRole="PATIENT"><CheckinPage /></ProtectedRoute>} />
-            <Route path="/patient/profile" element={<ProtectedRoute requiredRole="PATIENT"><ProfilePage /></ProtectedRoute>} />
-            <Route path="/doctor/dashboard" element={<ProtectedRoute requiredRole="DOCTOR"><DoctorDashboard /></ProtectedRoute>} />
-            <Route path="/doctor/patient/:id" element={<ProtectedRoute requiredRole="DOCTOR"><DoctorDashboard /></ProtectedRoute>} />
-            <Route path="/doctor/create-course" element={<ProtectedRoute requiredRole="DOCTOR"><CreateCourse /></ProtectedRoute>} />
-            <Route path="/doctor/profile" element={<ProtectedRoute requiredRole="DOCTOR"><ProfilePage /></ProtectedRoute>} />
-            <Route
-              path="/volunteer/dashboard"
-              element={
-                <ProtectedRoute requiredRole="VOLUNTEER">
-                  <VolunteerDashboard />
-                </ProtectedRoute>
-              }
-            />
-            <Route path="/relative/dashboard" element={<ProtectedRoute requiredRole="RELATIVE"><RelativeDashboard /></ProtectedRoute>} />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </Suspense>
-      </BrowserRouter>
+      <CheckinProvider>
+        <Sonner />
+        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+          <PendingCheckinWatcher />
+          <Suspense fallback={<DashboardSkeleton />}>
+            <Routes>
+              <Route path="/" element={<LandingPage />} />
+              <Route path="/demo" element={<DemoPage />} />
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/register" element={<RegisterPage />} />
+              <Route path="/patient/dashboard" element={<ProtectedRoute requiredRole="PATIENT"><PatientDashboard /></ProtectedRoute>} />
+              <Route path="/checkin" element={<ProtectedRoute requiredRole="PATIENT"><CheckinPage /></ProtectedRoute>} />
+              <Route path="/patient/profile" element={<ProtectedRoute requiredRole="PATIENT"><ProfilePage /></ProtectedRoute>} />
+              <Route path="/doctor/dashboard" element={<ProtectedRoute requiredRole="DOCTOR"><DoctorDashboard /></ProtectedRoute>} />
+              <Route path="/doctor/patient/:id" element={<ProtectedRoute requiredRole="DOCTOR"><DoctorDashboard /></ProtectedRoute>} />
+              <Route path="/doctor/create-course" element={<ProtectedRoute requiredRole="DOCTOR"><CreateCourse /></ProtectedRoute>} />
+              <Route path="/doctor/profile" element={<ProtectedRoute requiredRole="DOCTOR"><ProfilePage /></ProtectedRoute>} />
+              <Route
+                path="/volunteer/dashboard"
+                element={
+                  <ProtectedRoute requiredRole="VOLUNTEER">
+                    <VolunteerDashboard />
+                  </ProtectedRoute>
+                }
+              />
+              <Route path="/relative/dashboard" element={<ProtectedRoute requiredRole="RELATIVE"><RelativeDashboard /></ProtectedRoute>} />
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </Suspense>
+        </BrowserRouter>
+      </CheckinProvider>
     </TooltipProvider>
   </QueryClientProvider>
 );
 
 export default App;
+

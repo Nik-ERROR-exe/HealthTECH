@@ -242,6 +242,19 @@ async def escalation_agent_node(state: AgentState) -> AgentState:
             except Exception as e:
                 errors.append(f"EscalationAgent emergency email failed: {e}")
 
+        # Trigger dual emergency notification helper
+        if tier == "EMERGENCY":
+            try:
+                from app.services.email_service import send_emergency_notification
+                await send_emergency_notification(
+                    patient_name=patient_name or "Patient",
+                    emergency_contact_email=emergency_contact_email,
+                    doctor_email=doctor_email,
+                    alert_message=message,
+                )
+            except Exception as e:
+                logger.error(f"[EscalationAgent] send_emergency_notification failed: {e}")
+
         _mark_sms_sent(alert_id)
 
     return {

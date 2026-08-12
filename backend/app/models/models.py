@@ -201,6 +201,10 @@ class PatientProfile(Base):
     relative_profiles: Mapped[list["RelativeProfile"]] = relationship(
         "RelativeProfile", back_populates="patient"
     )
+    pending_check_ins: Mapped[list["PendingCheckIn"]] = relationship(
+        "PendingCheckIn", back_populates="patient", cascade="all, delete-orphan"
+    )
+
 
 
 # ─────────────────────────────────────────────
@@ -694,3 +698,28 @@ class MonitoringSchedule(Base):
     patient: Mapped["PatientProfile"] = relationship(
         "PatientProfile", back_populates="monitoring_schedule"
     )
+
+
+# ─────────────────────────────────────────────
+# TABLE 13: pending_check_ins
+# Tracks scheduled check-ins waiting to be triggered or triggered.
+# ─────────────────────────────────────────────
+
+class PendingCheckIn(Base):
+    __tablename__ = "pending_check_ins"
+
+    id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    patient_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("patient_profiles.id", ondelete="CASCADE"), nullable=False
+    )
+    scheduled_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    check_in_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("check_ins.id", ondelete="SET NULL"), nullable=True
+    )
+    triggered: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+    patient: Mapped["PatientProfile"] = relationship("PatientProfile", back_populates="pending_check_ins")
+    check_in: Mapped["CheckIn"] = relationship("CheckIn")

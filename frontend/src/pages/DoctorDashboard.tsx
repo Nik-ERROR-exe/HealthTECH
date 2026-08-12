@@ -16,7 +16,7 @@ import DashboardLayout from '@/components/DashboardLayout';
 import EmergencyBanner from '@/components/EmergencyBanner';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
-import api, { doctorApi } from '@/lib/api';
+import api, { doctorApi, triggerCheckin } from '@/lib/api';
 import Lenis from '@studio-freight/lenis';
 import { getUser } from '@/lib/auth';
 import {
@@ -453,6 +453,19 @@ const DoctorDashboard = () => {
     }
   };
 
+  const handleDemoTriggerCheckin = async (patientId: string, delaySeconds: number = 30) => {
+    setSchedulingId(patientId);
+    try {
+      await triggerCheckin(patientId, delaySeconds);
+      toast.success(`Demo check-in scheduled to trigger in ${delaySeconds} seconds!`);
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Failed to trigger check-in demo');
+    } finally {
+      setSchedulingId(null);
+    }
+  };
+
+
   const scheduleInMinutes = (patientId: string, name: string, minutes: number, label: string) =>
     handleScheduleCheckin(patientId, new Date(Date.now() + minutes * 60_000).toISOString(), label);
 
@@ -818,6 +831,14 @@ const DoctorDashboard = () => {
                           >
                             <Zap size={12} />
                             {t('doctorDashboard.triggerNow')}
+                          </button>
+                          <button
+                            onClick={() => handleDemoTriggerCheckin(detail.patient_id, 30)}
+                            disabled={schedulingId === detail.patient_id}
+                            className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 hover:bg-cyan-500/20 disabled:opacity-50 transition-colors"
+                          >
+                            {schedulingId === detail.patient_id ? <Loader2 size={12} className="animate-spin" /> : <Bell size={12} />}
+                            Demo Trigger (30s)
                           </button>
                         </div>
                       </div>

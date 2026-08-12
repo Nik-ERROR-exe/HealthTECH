@@ -17,7 +17,7 @@ from app.models.models import (
     MedicalCourse, Medication, CheckIn,
     RiskScore, WoundAnalysis, Alert,
     DoctorMessage, AgentSession, MonitoringSchedule,
-    RelativeProfile,
+    RelativeProfile, PendingCheckIn,
 )
 
 # Routers
@@ -28,15 +28,26 @@ from app.routers.conversation import router as conversation_router
 from app.routers.emergency import router as emergency_router
 from app.routers.volunteer import router as volunteer_router
 from app.routers.relative import router as relative_router
-# from app.routers.agent import router as agent_router
+from app.routers.checkin import router as checkin_router
+from app.routers.image import router as image_router
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Ensure database tables exist (non-destructive create_all)
+    try:
+        Base.metadata.create_all(bind=engine)
+    except Exception as exc:
+        logging.warning(f"[DB] Base.metadata.create_all failed: {exc}")
+
     # Start the proactive monitoring scheduler (guarded against uvicorn --reload double-start).
     from app.scheduler import scheduler, start_scheduler
     if not scheduler.running:
         start_scheduler()
+
+    # Start the daily checkin & missed checkin scheduler
+    from app.services.scheduler import start_services_scheduler, stop_services_scheduler
+    start_services_scheduler()
 
     # Warm the RAG knowledge index — never fatal (falls back to no-RAG).
     try:
@@ -52,6 +63,7 @@ async def lifespan(app: FastAPI):
     try:
         from app.scheduler import stop_scheduler
         stop_scheduler()
+        stop_services_scheduler()
     except Exception:
         pass
 
@@ -95,7 +107,9 @@ def create_app() -> FastAPI:
     app.include_router(emergency_router, prefix="/api")
     app.include_router(volunteer_router, prefix="/api")
     app.include_router(relative_router, prefix="/api")
-    # app.include_router(agent_router, prefix="/api")
+    app.include_router(checkin_router, prefix="/api")
+    app.include_router(image_router, prefix="/api")
+
 
     # ── Health check ──
     @app.get("/health", tags=["Health"])

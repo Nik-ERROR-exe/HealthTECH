@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import DashboardLayout from '@/components/DashboardLayout';
+import ImageChat from '@/components/ImageChat';
 import { getUser } from '@/lib/auth';
 import api, { conversationApi } from '@/lib/api';
 import ImpactDetector, { ImpactDetectorHandle } from '@/components/ImpactDetector';
@@ -159,6 +160,7 @@ const PatientDashboard = () => {
 
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [isPaid, setIsPaid] = useState<boolean>(false);
+  const [showImageChat, setShowImageChat] = useState(false);
 
   // Lenis smooth scroll
   useEffect(() => {
@@ -584,17 +586,16 @@ const PatientDashboard = () => {
           </button>
 
           <button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploadingWound}
+            onClick={() => setShowImageChat(true)}
             className="w-full glass-card p-5 flex items-center justify-between hover:border-orange-400/40 transition-all group rounded-2xl hover:scale-[1.02]"
           >
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-full bg-gradient-to-br from-orange-500 to-pink-500 flex items-center justify-center">
-                {uploadingWound ? <Loader2 size={16} className="text-white animate-spin" /> : <Camera size={16} className="text-white" />}
+                <Camera size={16} className="text-white" />
               </div>
               <div className="text-left">
-                <p className="text-sm font-semibold text-foreground">Upload Image & Chat</p>
-                <p className="text-xs text-muted-foreground">Upload a photo & ask CARA about your condition</p>
+                <p className="text-sm font-semibold text-foreground">Wound Analysis Chat</p>
+                <p className="text-xs text-muted-foreground">Upload a wound photo for AI analysis & follow-up Q&A</p>
               </div>
             </div>
             <Upload size={18} className="text-muted-foreground group-hover:text-orange-400 transition-colors shrink-0" />
@@ -900,6 +901,10 @@ const PatientDashboard = () => {
         </motion.div>
 
       </motion.div>
+
+      {/* Wound Analysis Chat Modal */}
+      <ImageChat open={showImageChat} onClose={() => setShowImageChat(false)} />
+
     </DashboardLayout>
   );
 };

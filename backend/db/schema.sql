@@ -13,6 +13,7 @@
 -- ─────────────────────────────────────────────
 -- 0. DROP existing objects (reverse dependency order)
 -- ─────────────────────────────────────────────
+DROP TABLE IF EXISTS pending_check_ins CASCADE;
 DROP TABLE IF EXISTS monitoring_schedules CASCADE;
 DROP TABLE IF EXISTS agent_sessions CASCADE;
 DROP TABLE IF EXISTS doctor_messages CASCADE;
@@ -349,3 +350,18 @@ CREATE INDEX IF NOT EXISTS idx_meds_course         ON medications(course_id);
 CREATE INDEX IF NOT EXISTS idx_msgs_patient        ON doctor_messages(patient_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_patient    ON agent_sessions(patient_id);
 CREATE INDEX IF NOT EXISTS idx_monitor_patient     ON monitoring_schedules(patient_id);
+
+-- ─────────────────────────────────────────────
+-- 17. TABLE 15: pending_check_ins
+-- ─────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS pending_check_ins (
+    id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    patient_id     UUID NOT NULL REFERENCES patient_profiles(id) ON DELETE CASCADE,
+    scheduled_time TIMESTAMPTZ NOT NULL,
+    check_in_id    UUID REFERENCES check_ins(id) ON DELETE SET NULL,
+    triggered      BOOLEAN DEFAULT FALSE,
+    created_at     TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_pending_patient ON pending_check_ins(patient_id);
+

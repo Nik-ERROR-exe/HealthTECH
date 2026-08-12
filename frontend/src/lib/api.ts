@@ -93,4 +93,30 @@ export const emergencyApi = {
     api.post('/patient/emergency/dispatch', data),
 };
 
-export default api;
+export const checkinApi = {
+  triggerCheckin: (patientId: string, delaySeconds?: number) =>
+    api.post('/checkin/trigger', { patient_id: patientId, delay_seconds: delaySeconds || 0 }),
+  getPendingCheckin: () => api.get('/checkin/pending'),
+  consumePendingCheckin: (pendingId?: string) =>
+    pendingId ? api.post(`/checkin/consume/${pendingId}`) : api.post('/checkin/consume'),
+};
+
+export const imageApi = {
+  uploadImage: (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post('/image/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+  sendImageChat: (analysisId: string, query: string) =>
+    api.post('/image/chat', { analysis_id: analysisId, query }),
+};
+
+export const triggerCheckin = (patientId: string, delaySeconds?: number) => checkinApi.triggerCheckin(patientId, delaySeconds);
+export const getPendingCheckin = () => checkinApi.getPendingCheckin();
+export const consumePendingCheckin = (pendingId?: string) => checkinApi.consumePendingCheckin(pendingId);
+export const uploadImage = (file: File) => imageApi.uploadImage(file);
+export const sendImageChat = (analysisId: string, query: string) => imageApi.sendImageChat(analysisId, query);
+
+export default api;
