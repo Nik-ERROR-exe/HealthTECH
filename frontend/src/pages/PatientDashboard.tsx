@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, useInView, Variants } from 'framer-motion';
 import {
   Copy, Check, Pill, ChevronRight, Activity,
-  Loader2, MessageSquare, Bell, Camera, Upload,
+  Loader2, MessageSquare, Bell, Camera, Upload, Send,
   TrendingUp, Heart, Calendar, Clock, Zap, Sparkles,
   BarChart3, PieChart, TrendingDown, Shield, Wifi, Brain,
   AlertTriangle, Users, MapPin, History, FileText,
@@ -156,11 +156,16 @@ const PatientDashboard = () => {
   const [emergencyLoading, setEmergencyLoading] = useState(false);
   const [emergencyResult, setEmergencyResult] = useState<{ alert_id: string; maps_url: string; volunteers_notified: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const impactDetectorRef = useRef<ImpactDetectorHandle>(null);  // <-- FIXED
+  const impactDetectorRef = useRef<ImpactDetectorHandle>(null);
 
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [isPaid, setIsPaid] = useState<boolean>(false);
+  // ===== Merged state declarations =====
   const [showImageChat, setShowImageChat] = useState(false);
+  const [showDoctorChat, setShowDoctorChat] = useState(false);
+  const [chatInput, setChatInput] = useState('');
+  const [medsState, setMedsState] = useState<Record<string, boolean>>({});
+  const chatEndRef = useRef<HTMLDivElement>(null);
 
   // Lenis smooth scroll
   useEffect(() => {
@@ -351,13 +356,37 @@ const PatientDashboard = () => {
     }
   };
 
-  const symptomTrend = useMemo(() => {
+  const riskScoreData = useMemo(() => {
     if (!checkinHistory.length) return [];
     return checkinHistory.slice(-7).map(c => ({
       date: new Date(c.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-      severity: c.symptom_severity ?? (c.risk_score ? Math.min(100, c.risk_score) : 0)
+      riskScore: c.risk_score ?? 0,
+      tier: c.risk_tier || 'GREEN',
     }));
   }, [checkinHistory]);
+
+  // Initialize medsState from data when data loads
+  useEffect(() => {
+    if (data?.medications_today) {
+      const initial: Record<string, boolean> = {};
+      data.medications_today.forEach(m => {
+        initial[m.id] = m.taken ?? false;
+      });
+      setMedsState(initial);
+    }
+  }, [data?.medications_today]);
+
+  const toggleMedTaken = (medId: string) => {
+    setMedsState(prev => ({ ...prev, [medId]: !prev[medId] }));
+    const med = data?.medications_today.find(m => m.id === medId);
+    const nowTaken = !medsState[medId];
+    toast.success(`${med?.name || 'Medication'} marked as ${nowTaken ? 'Taken ✓' : 'Not Taken'}`);
+  };
+
+  // Scroll chat to bottom
+  useEffect(() => {
+    if (showDoctorChat) chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [showDoctorChat, messages]);
 
   if (loading) {
     return (
@@ -427,10 +456,10 @@ const PatientDashboard = () => {
   const riskConfig = getRiskConfig(riskTier);
   const RiskIcon = riskConfig.icon;
 
-  const medsWithTaken = data.medications_today.filter(m => m.taken !== undefined);
-  const takenCount = medsWithTaken.filter(m => m.taken).length;
-  const missedCount = medsWithTaken.filter(m => !m.taken).length;
-  const adherencePercent = medsWithTaken.length ? Math.round((takenCount / medsWithTaken.length) * 100) : 0;
+  const totalMeds = data.medications_today.length;
+  const takenCount = data.medications_today.filter(m => medsState[m.id]).length;
+  const missedCount = totalMeds - takenCount;
+  const adherencePercent = totalMeds ? Math.round((takenCount / totalMeds) * 100) : 0;
   const adherenceData = [
     { name: 'Taken', value: takenCount, fill: '#10b981' },
     { name: 'Missed', value: missedCount, fill: '#ef4444' },
@@ -524,7 +553,7 @@ const PatientDashboard = () => {
           </motion.div>
         )}
 
-        {/* Risk + AI Insight Row */}
+        {/* Risk + Doctor Messages Row */}
         <div className="grid md:grid-cols-2 gap-5">
           <motion.div custom={0.5} variants={fadeUp} className="glass-card rounded-3xl p-5 border-l-8" style={{ borderLeftColor: riskConfig.color }}>
             <div className="flex items-start justify-between">
@@ -549,23 +578,129 @@ const PatientDashboard = () => {
             )}
           </motion.div>
 
-          <motion.div custom={0.6} variants={fadeUp} className="glass-card rounded-3xl p-5 border border-border/50">
+          <motion.div custom={0.6} variants={fadeUp}
+            className="glass-card rounded-3xl p-5 border border-border/50 cursor-pointer hover:border-primary/40 hover:scale-[1.01] transition-all"
+            onClick={() => setShowDoctorChat(true)}
+          >
             <div className="flex items-start gap-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shrink-0">
-                <Brain size={18} className="text-white" />
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 flex items-center justify-center shrink-0">
+                <MessageSquare size={18} className="text-white" />
               </div>
-              <div>
-                <p className="text-sm font-semibold text-foreground">AI Insight</p>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  {data.active_course
-                    ? `Your recovery is on track. Continue with "${data.active_course.course_name}". ${riskTier !== 'GREEN' ? 'Please complete the pending check‑in.' : 'Keep up the good work!'}`
-                    : 'No active course. Share your Patient ID with your doctor.'}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold text-foreground">Doctor Messages</p>
+                  {data.unread_messages > 0 && <span className="text-[10px] bg-primary text-white px-2 py-0.5 rounded-full animate-pulse">{data.unread_messages} new</span>}
+                </div>
+                <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                  {messages.length > 0 ? `${messages[0].doctor_name}: ${messages[0].message}` : 'No messages yet. Tap to open chat.'}
                 </p>
-
+                <p className="text-[10px] text-primary mt-1 flex items-center gap-1"><ChevronRight size={10} /> Tap to open chat</p>
               </div>
             </div>
           </motion.div>
         </div>
+
+        {/* WhatsApp-Style Doctor Chat Modal */}
+        {showDoctorChat && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+            onClick={(e) => { if (e.target === e.currentTarget) setShowDoctorChat(false); }}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              className="w-full max-w-lg h-[80vh] max-h-[600px] bg-background rounded-3xl border border-border shadow-2xl flex flex-col overflow-hidden"
+            >
+              {/* Chat Header */}
+              <div className="flex items-center gap-3 p-4 border-b border-border bg-gradient-to-r from-emerald-500/10 to-teal-500/10">
+                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-500 to-teal-500 flex items-center justify-center text-white font-bold text-sm">Dr</div>
+                <div className="flex-1">
+                  <p className="text-sm font-semibold text-foreground">{messages.length > 0 ? messages[0].doctor_name : 'Your Doctor'}</p>
+                  <p className="text-[10px] text-emerald-400 flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-emerald-400"/> Online</p>
+                </div>
+                <button onClick={() => setShowDoctorChat(false)} className="p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground">✕</button>
+              </div>
+
+              {/* Chat Messages */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                {messages.length > 0 ? (
+                  messages.map(msg => (
+                    <div key={msg.id} className="flex flex-col">
+                      <div className="max-w-[80%] self-start">
+                        <div className="bg-muted/50 border border-border/50 rounded-2xl rounded-tl-md px-4 py-2.5">
+                          <p className="text-xs font-medium text-primary mb-0.5">{msg.doctor_name}</p>
+                          <p className="text-sm text-foreground leading-relaxed">{msg.message}</p>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground mt-1 ml-1">{new Date(msg.created_at).toLocaleString()}</p>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="flex items-center justify-center h-full text-center">
+                    <div>
+                      <MessageSquare size={40} className="mx-auto mb-3 text-muted-foreground/30" />
+                      <p className="text-sm text-muted-foreground">No messages yet.</p>
+                      <p className="text-xs text-muted-foreground mt-1">Your doctor's messages will appear here.</p>
+                    </div>
+                  </div>
+                )}
+                <div ref={chatEndRef} />
+              </div>
+
+              {/* Chat Input */}
+              <div className="p-3 border-t border-border bg-muted/20">
+                <div className="flex items-center gap-2">
+                  <input
+                    value={chatInput}
+                    onChange={e => setChatInput(e.target.value)}
+                    placeholder="Type a message..."
+                    className="flex-1 px-4 py-2.5 rounded-full bg-muted/50 border border-border text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-primary/30"
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' && chatInput.trim()) {
+                        toast.info('Messages from patients are handled via check-ins.');
+                        setChatInput('');
+                      }
+                    }}
+                  />
+                  <button
+                    onClick={() => {
+                      if (chatInput.trim()) {
+                        toast.info('Messages from patients are handled via check-ins.');
+                        setChatInput('');
+                      }
+                    }}
+                    className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-500 to-teal-500 flex items-center justify-center text-white hover:scale-105 transition-transform shrink-0"
+                  >
+                    <Send size={16} />
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {/* Upcoming Appointments — moved to upper section */}
+        <motion.div custom={0.8} variants={fadeUp} className="glass-card rounded-3xl p-6">
+          <h2 className="font-semibold text-foreground mb-4 flex items-center gap-2"><Calendar size={18} className="text-cyan-400" /> Upcoming Appointments</h2>
+          {appointments.length > 0 ? (
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {appointments.map((apt, idx) => (
+                <div key={idx} className="flex items-center justify-between p-3 rounded-xl bg-muted/20 border border-border/30 hover:bg-muted/40 transition">
+                  <div><p className="text-sm font-medium">{apt.type}</p><p className="text-xs text-muted-foreground">{apt.doctor}</p></div>
+                  <div className="text-right"><p className="text-xs font-mono">{formatDate(apt.date)}</p>{apt.location && <p className="text-[10px] text-muted-foreground">{apt.location}</p>}</div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-6 text-muted-foreground">
+              <Calendar size={28} className="mx-auto mb-2 opacity-30" />
+              <p className="text-sm">No upcoming appointments.</p>
+              <button className="text-xs text-primary mt-2 underline">Contact your clinic</button>
+            </div>
+          )}
+        </motion.div>
 
         {/* Quick Actions — always visible */}
         <motion.div custom={1} variants={fadeUp} className="grid sm:grid-cols-2 gap-4">
@@ -639,22 +774,28 @@ const PatientDashboard = () => {
           <motion.div custom={3} variants={fadeUp} className="glass-card rounded-3xl p-6">
             <h2 className="font-semibold text-foreground mb-4 flex items-center gap-2">
               <Pill size={18} className="text-secondary" /> Today's Medications
+              {totalMeds > 0 && <span className="ml-auto text-xs font-normal text-muted-foreground">{takenCount}/{totalMeds} taken</span>}
             </h2>
             {data.medications_today.length > 0 ? (
               <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
                 {data.medications_today.map(med => (
                   <div key={med.id} className="p-3 rounded-xl bg-muted/30 hover:bg-muted/50 transition">
-                    <div className="flex justify-between items-start">
-                      <div>
+                    <div className="flex justify-between items-center gap-3">
+                      <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium">{med.name}</p>
                         <p className="text-xs text-muted-foreground">{med.dosage} · {med.frequency}</p>
                         {med.time_of_day && <p className="text-xs text-muted-foreground/70 mt-1"><Clock size={10} className="inline mr-1" />{med.time_of_day}</p>}
                       </div>
-                      {med.taken !== undefined && (
-                        <span className={`text-xs px-2 py-0.5 rounded-full ${med.taken ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400'}`}>
-                          {med.taken ? 'Taken' : 'Pending'}
-                        </span>
-                      )}
+                      <button
+                        onClick={() => toggleMedTaken(med.id)}
+                        className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
+                          medsState[med.id]
+                            ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/25'
+                            : 'bg-amber-500/10 text-amber-400 border-amber-500/30 hover:bg-amber-500/20'
+                        }`}
+                      >
+                        {medsState[med.id] ? <><Check size={12} /> Taken</> : <><XCircle size={12} /> Not Taken</>}
+                      </button>
                     </div>
                     {med.instructions && <p className="text-[10px] text-muted-foreground mt-1 italic">{med.instructions}</p>}
                   </div>
@@ -693,7 +834,7 @@ const PatientDashboard = () => {
 
           <motion.div custom={5} variants={fadeUp} className="glass-card rounded-3xl p-5">
             <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">Medication Adherence</h3>
-            {medsWithTaken.length > 0 ? (
+            {totalMeds > 0 ? (
               <>
                 <div className="h-32 flex items-center justify-center">
                   <ResponsiveContainer width="100%" height="100%">
@@ -713,72 +854,70 @@ const PatientDashboard = () => {
           </motion.div>
 
           <motion.div custom={6} variants={fadeUp} className="glass-card rounded-3xl p-5">
-            <h3 className="text-sm font-semibold mb-3 flex items-center gap-2"><LineChartIcon size={15} className="text-purple-400" /> Symptom Trend</h3>
-            {symptomTrend.length > 0 ? (
+            <h3 className="text-sm font-semibold mb-3 flex items-center gap-2"><Activity size={15} className="text-blue-400" /> Risk Score</h3>
+            {riskScoreData.length > 0 ? (
               <div className="h-32">
                 <ResponsiveContainer width="100%" height="100%">
-                  <ReLineChart data={symptomTrend}>
+                  <AreaChart data={riskScoreData}>
+                    <defs><linearGradient id="riskGradPatient" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={riskConfig.color} stopOpacity={0.3}/><stop offset="100%" stopColor={riskConfig.color} stopOpacity={0}/></linearGradient></defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                     <XAxis dataKey="date" tick={{ fontSize: 8 }} />
                     <YAxis domain={[0, 100]} tick={{ fontSize: 8 }} />
-                    <Tooltip />
-                    <Line type="monotone" dataKey="severity" stroke="#8b5cf6" strokeWidth={2} dot={{ r: 2 }} />
-                  </ReLineChart>
-                </ResponsiveContainer>
-              </div>
-            ) : (
-              <p className="text-center text-muted-foreground text-sm py-6">Complete check-ins to see symptom trends.</p>
-            )}
-          </motion.div>
-        </div>
-
-        {/* Risk History & Recent Checkins */}
-        <div className="grid md:grid-cols-2 gap-6">
-          <motion.div custom={7} variants={fadeUp} className="glass-card rounded-3xl p-5">
-            <h3 className="text-sm font-semibold mb-3 flex items-center gap-2"><History size={15} className="text-blue-400" /> Risk Score History</h3>
-            {checkinHistory.length > 0 ? (
-              <div className="h-40">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={checkinHistory.slice(-7).map(c => ({ date: new Date(c.date).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' }), score: c.risk_score }))}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                    <XAxis dataKey="date" tick={{ fontSize: 10 }} />
-                    <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} />
-                    <Tooltip />
-                    <Area type="monotone" dataKey="score" stroke="#3b82f6" fill="url(#riskGradBlue)" />
-                    <defs><linearGradient id="riskGradBlue" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#3b82f6" stopOpacity={0.3}/><stop offset="100%" stopColor="#3b82f6" stopOpacity={0}/></linearGradient></defs>
+                    <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--card))', borderRadius: 12, border: '1px solid hsl(var(--border))', color: 'hsl(var(--foreground))' }} />
+                    <Area type="monotone" dataKey="riskScore" stroke={riskConfig.color} fill="url(#riskGradPatient)" strokeWidth={2} />
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
             ) : (
-              <p className="text-center text-muted-foreground text-sm py-6">No check-in history yet.</p>
-            )}
-          </motion.div>
-
-          <motion.div custom={8} variants={fadeUp} className="glass-card rounded-3xl p-5">
-            <h3 className="text-sm font-semibold mb-3 flex items-center gap-2"><Clock size={15} className="text-amber-400" /> Recent Check-ins</h3>
-            {data.recent_check_ins && data.recent_check_ins.length > 0 ? (
-              <div className="space-y-2 max-h-40 overflow-y-auto">
-                {data.recent_check_ins.slice(0,5).map(check => (
-                  <div key={check.check_in_id} className="flex items-start gap-2 p-2 border-b border-border/50 last:border-0">
-                    <div className={`w-2 h-2 mt-1.5 rounded-full ${check.tier === 'RED' || check.tier === 'EMERGENCY' ? 'bg-red-500' : check.tier === 'ORANGE' ? 'bg-orange-500' : check.tier === 'YELLOW' ? 'bg-yellow-500' : 'bg-emerald-500'}`} />
-                    <div className="flex-1">
-                      <p className="text-xs text-foreground line-clamp-1">{check.symptom_summary || `${check.input_type} check-in`}</p>
-                      <p className="text-[10px] text-muted-foreground">{new Date(check.created_at).toLocaleString()}</p>
-                    </div>
-                    <span className="text-[10px] font-medium">{check.total_score !== null ? `${check.total_score} score` : '—'}</span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-center text-muted-foreground text-sm py-6">No recent check-ins. Start one now!</p>
+              <p className="text-center text-muted-foreground text-sm py-6">Complete check-ins to see risk score trend.</p>
             )}
           </motion.div>
         </div>
 
-        {/* Wound History + Volunteer Network */}
-        <div className="grid md:grid-cols-2 gap-6">
+        {/* Risk History */}
+        <motion.div custom={7} variants={fadeUp} className="glass-card rounded-3xl p-5">
+          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2"><History size={15} className="text-blue-400" /> Risk Score History</h3>
+          {checkinHistory.length > 0 ? (
+            <div className="h-40">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={checkinHistory.slice(-7).map(c => ({ date: new Date(c.date).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' }), score: c.risk_score }))}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                  <XAxis dataKey="date" tick={{ fontSize: 10 }} />
+                  <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} />
+                  <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--card))', borderRadius: 12, border: '1px solid hsl(var(--border))', color: 'hsl(var(--foreground))' }} />
+                  <Area type="monotone" dataKey="score" stroke="#3b82f6" fill="url(#riskGradBlue)" />
+                  <defs><linearGradient id="riskGradBlue" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#3b82f6" stopOpacity={0.3}/><stop offset="100%" stopColor="#3b82f6" stopOpacity={0}/></linearGradient></defs>
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <p className="text-center text-muted-foreground text-sm py-6">No check-in history yet.</p>
+          )}
+        </motion.div>
+
+        {/* Care Team + Wound Analysis — two-column on desktop, stacked on mobile */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <motion.div custom={8} variants={fadeUp} className="glass-card rounded-3xl p-6">
+            <h2 className="font-semibold text-foreground mb-4 flex items-center gap-2"><Heart size={18} className="text-yellow-500" /> Your Care Team</h2>
+            {careTeam.length > 0 ? (
+              <div className="space-y-3">
+                {careTeam.map((member, idx) => (
+                  <div key={idx} className="flex items-center gap-3 p-2 rounded-xl hover:bg-muted/20 transition">
+                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary/30 to-secondary/30 flex items-center justify-center text-primary font-bold text-sm">{member.name.charAt(0)}</div>
+                    <div><p className="text-sm font-medium">{member.name}</p><p className="text-xs text-muted-foreground">{member.role}{member.specialty ? ` • ${member.specialty}` : ''}</p></div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-6 text-muted-foreground">
+                <Users size={28} className="mx-auto mb-2 opacity-30" />
+                <p className="text-sm">Your care team will appear once assigned.</p>
+              </div>
+            )}
+          </motion.div>
+
           <motion.div custom={9} variants={fadeUp} className="glass-card rounded-3xl p-6">
-            <h2 className="font-semibold text-foreground mb-4 flex items-center gap-2"><Camera size={18} className="text-orange-400" /> Wound Analysis History</h2>
+            <h2 className="font-semibold text-foreground mb-4 flex items-center gap-2"><Camera size={18} className="text-orange-400" /> Wound Analysis</h2>
             {woundHistory.length > 0 ? (
               <div className="space-y-3 max-h-64 overflow-y-auto">
                 {woundHistory.map(w => (
@@ -800,9 +939,32 @@ const PatientDashboard = () => {
               </div>
             )}
           </motion.div>
+        </div>
 
-          <motion.div custom={10} variants={fadeUp} className="glass-card rounded-3xl p-6">
-            <h2 className="font-semibold text-foreground mb-4 flex items-center gap-2"><Users size={18} className="text-blue-400" /> Safety Network</h2>
+        {/* Recent Check-ins + Safety Network — two-column on desktop, stacked on mobile */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <motion.div custom={10} variants={fadeUp} className="glass-card rounded-3xl p-5">
+            <h3 className="text-sm font-semibold mb-3 flex items-center gap-2"><Clock size={15} className="text-amber-400" /> Recent Check-ins</h3>
+            {data.recent_check_ins && data.recent_check_ins.length > 0 ? (
+              <div className="space-y-2 max-h-48 overflow-y-auto">
+                {data.recent_check_ins.slice(0,5).map(check => (
+                  <div key={check.check_in_id} className="flex items-start gap-2 p-2 border-b border-border/50 last:border-0">
+                    <div className={`w-2 h-2 mt-1.5 rounded-full ${check.tier === 'RED' || check.tier === 'EMERGENCY' ? 'bg-red-500' : check.tier === 'ORANGE' ? 'bg-orange-500' : check.tier === 'YELLOW' ? 'bg-yellow-500' : 'bg-emerald-500'}`} />
+                    <div className="flex-1">
+                      <p className="text-xs text-foreground line-clamp-1">{check.symptom_summary || `${check.input_type} check-in`}</p>
+                      <p className="text-[10px] text-muted-foreground">{new Date(check.created_at).toLocaleString()}</p>
+                    </div>
+                    <span className="text-[10px] font-medium">{check.total_score !== null ? `${check.total_score} score` : '—'}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-center text-muted-foreground text-sm py-6">No recent check-ins. Start one now!</p>
+            )}
+          </motion.div>
+
+          <motion.div custom={11} variants={fadeUp} className="glass-card rounded-3xl p-6">
+            <h2 className="font-semibold text-foreground mb-4 flex items-center gap-2"><Shield size={18} className="text-blue-400" /> Safety Network</h2>
             <div className="space-y-4">
               {nearbyVolunteers !== null ? (
                 <div className="flex items-center justify-between p-3 rounded-xl bg-muted/30">
@@ -833,72 +995,6 @@ const PatientDashboard = () => {
             </div>
           </motion.div>
         </div>
-
-        {/* Upcoming Appointments & Care Team */}
-        <div className="grid md:grid-cols-2 gap-6">
-          <motion.div custom={11} variants={fadeUp} className="glass-card rounded-3xl p-6">
-            <h2 className="font-semibold text-foreground mb-4 flex items-center gap-2"><Calendar size={18} className="text-cyan-400" /> Upcoming Appointments</h2>
-            {appointments.length > 0 ? (
-              <div className="space-y-3">
-                {appointments.map((apt, idx) => (
-                  <div key={idx} className="flex items-center justify-between p-3 rounded-xl bg-muted/20">
-                    <div><p className="text-sm font-medium">{apt.type}</p><p className="text-xs text-muted-foreground">{apt.doctor}</p></div>
-                    <div className="text-right"><p className="text-xs font-mono">{formatDate(apt.date)}</p>{apt.location && <p className="text-[10px] text-muted-foreground">{apt.location}</p>}</div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-6 text-muted-foreground">
-                <Calendar size={28} className="mx-auto mb-2 opacity-30" />
-                <p className="text-sm">No upcoming appointments.</p>
-                <button className="text-xs text-primary mt-2 underline">Contact your clinic</button>
-              </div>
-            )}
-          </motion.div>
-
-          <motion.div custom={12} variants={fadeUp} className="glass-card rounded-3xl p-6">
-            <h2 className="font-semibold text-foreground mb-4 flex items-center gap-2"><Heart size={18} className="text-yellow-500" /> Your Care Team</h2>
-            {careTeam.length > 0 ? (
-              <div className="space-y-3">
-                {careTeam.map((member, idx) => (
-                  <div key={idx} className="flex items-center gap-3 p-2 rounded-xl hover:bg-muted/20 transition">
-                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary/30 to-secondary/30 flex items-center justify-center text-primary font-bold text-sm">{member.name.charAt(0)}</div>
-                    <div><p className="text-sm font-medium">{member.name}</p><p className="text-xs text-muted-foreground">{member.role}{member.specialty ? ` • ${member.specialty}` : ''}</p></div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-6 text-muted-foreground">
-                <Users size={28} className="mx-auto mb-2 opacity-30" />
-                <p className="text-sm">Your care team will appear once assigned.</p>
-              </div>
-            )}
-          </motion.div>
-        </div>
-
-        {/* Doctor Messages */}
-        <motion.div custom={13} variants={fadeUp} className="glass-card rounded-3xl p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="font-semibold text-foreground flex items-center gap-2"><MessageSquare size={18} className="text-primary" /> Doctor Messages</h2>
-            {data.unread_messages > 0 && <span className="text-xs bg-primary/10 text-primary px-3 py-1 rounded-full animate-pulse">{data.unread_messages} new</span>}
-          </div>
-          <div className="space-y-3 max-h-80 overflow-y-auto">
-            {messages.length > 0 ? (
-              messages.map(msg => (
-                <div key={msg.id} className={`p-4 rounded-xl border ${!msg.is_read ? 'border-primary/30 bg-primary/5' : 'border-border bg-muted/20'} transition`}>
-                  <div className="flex justify-between"><p className="text-sm font-medium">{msg.doctor_name}</p><span className="text-xs text-muted-foreground">{new Date(msg.created_at).toLocaleString()}</span></div>
-                  <p className="text-sm text-muted-foreground mt-1">{msg.message}</p>
-                  {!msg.is_read && <div className="mt-2 text-xs text-primary flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"/> New</div>}
-                </div>
-              ))
-            ) : (
-              <div className="text-center py-8 text-muted-foreground">
-                <MessageSquare size={32} className="mx-auto mb-2 opacity-30" />
-                <p>No messages from your doctor yet.</p>
-              </div>
-            )}
-          </div>
-        </motion.div>
 
       </motion.div>
 

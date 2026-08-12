@@ -28,6 +28,7 @@ const CONDITION_TYPES = [
   { value: 'ASTHMA_RESPIRATORY', label: 'Asthma / Respiratory' },
   { value: 'DIABETES_MANAGEMENT', label: 'Diabetes Management' },
   { value: 'GENERAL_POST_SURGERY', label: 'General Post Surgery' },
+  { value: 'OTHER', label: 'Other (Custom Condition)' },
 ];
 
 const CreateCourse = () => {
@@ -40,7 +41,11 @@ const CreateCourse = () => {
   const [searching, setSearching] = useState(false);
   const [foundPatient, setFoundPatient] = useState<FoundPatient | null>(null);
   const [creating, setCreating] = useState(false);
-  const { register, handleSubmit, formState: { errors }, getValues } = useForm();
+  const [customCondition, setCustomCondition] = useState('');
+  const [dateError, setDateError] = useState<string | null>(null);
+  const { register, handleSubmit, formState: { errors }, getValues, watch } = useForm();
+
+  const selectedConditionType = watch('condition_type');
 
   const addMed = () => setMedications([...medications, { name: '', dosage: '', frequency: 'Once daily', time_of_day: '', special_instructions: '' }]);
   const removeMed = (i: number) => setMedications(medications.filter((_, idx) => idx !== i));
@@ -55,7 +60,7 @@ const CreateCourse = () => {
     setSearching(true);
     setFoundPatient(null);
     try {
-      const res = await api.get(`/doctor/find-patient?uid=${encodeURIComponent(patientSearch.trim())}`);
+      const res = await api.get(`/doctor/find-patient?uid=${encodeURIComponent(patientSearch.trim().toUpperCase())}`);
       setFoundPatient(res.data);
       toast.success(`Found: ${res.data.full_name}`);
     } catch (err: any) {
@@ -66,6 +71,36 @@ const CreateCourse = () => {
   };
 
   const onSubmit = () => {
+    if (step === 1) {
+      const formValues = getValues();
+      if (!formValues.startDate || !formValues.endDate) {
+        const msg = 'Both Start Date and End Date are required.';
+        setDateError(msg);
+        toast.error(msg);
+        return;
+      }
+      const start = new Date(formValues.startDate);
+      const end = new Date(formValues.endDate);
+      const diffTime = end.getTime() - start.getTime();
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+      if (isNaN(diffDays) || diffDays < 7) {
+        const msg = 'Course duration must be at least 7 days between Start Date and End Date.';
+        setDateError(msg);
+        toast.error(msg);
+        return;
+      }
+
+      if (formValues.condition_type === 'OTHER' && !customCondition.trim()) {
+        toast.error('Please enter a custom condition name.');
+        return;
+      }
+
+      setDateError(null);
+      setStep(2);
+      return;
+    }
+
     if (step < 3) {
       setStep(step + 1);
       return;
@@ -86,13 +121,17 @@ const CreateCourse = () => {
     }
 
     const formValues = getValues();
+    const condition = formValues.condition_type === 'OTHER'
+      ? (customCondition.trim() || 'CUSTOM_CONDITION')
+      : formValues.condition_type;
+
     setCreating(true);
 
     try {
       // Step 1: Create the course
       const courseRes = await api.post('/doctor/courses', {
         course_name: formValues.name,
-        condition_type: formValues.condition_type,
+        condition_type: condition,
         start_date: formValues.startDate,
         end_date: formValues.endDate,
         notes_for_patient: formValues.notes || null,
@@ -164,6 +203,19 @@ const CreateCourse = () => {
                   ))}
                 </select>
               </div>
+
+              {selectedConditionType === 'OTHER' && (
+                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}>
+                  <label className="text-sm font-medium text-foreground mb-1.5 block">Custom Condition</label>
+                  <input
+                    value={customCondition}
+                    onChange={(e) => setCustomCondition(e.target.value)}
+                    placeholder="Enter custom medical condition..."
+                    className="w-full px-4 py-2.5 rounded-lg bg-muted border border-border text-foreground text-sm placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-ring/30"
+                  />
+                </motion.div>
+              )}
+
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-sm font-medium text-foreground mb-1.5 block">Start Date</label>
@@ -174,6 +226,13 @@ const CreateCourse = () => {
                   <input type="date" {...register('endDate', { required: true })} className="w-full px-4 py-2.5 rounded-lg bg-muted border border-border text-foreground text-sm outline-none focus:ring-2 focus:ring-ring/30" />
                 </div>
               </div>
+
+              {dateError && (
+                <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-xs font-medium flex items-center gap-2">
+                  ⚠️ {dateError}
+                </div>
+              )}
+
               <div>
                 <label className="text-sm font-medium text-foreground mb-1.5 block">Notes for Patient (optional)</label>
                 <textarea {...register('notes')} rows={3} placeholder="Instructions or notes for the patient..." className="w-full px-4 py-2.5 rounded-lg bg-muted border border-border text-foreground text-sm placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-ring/30 resize-none" />
@@ -203,11 +262,11 @@ const CreateCourse = () => {
                     />
                   </div>
                   <div className="col-span-3">
-                    {i === 0 && <label className="text-xs font-medium text-muted-foreground mb-1 block">Dosage</label>}
+                    {i === 0 && <label className="text-xs font-medium text-muted-foreground mb-1 block">Number of Pills</label>}
                     <input
                       value={med.dosage}
                       onChange={(e) => updateMed(i, 'dosage', e.target.value)}
-                      placeholder="500mg"
+                      placeholder="e.g. 2 pills"
                       className="w-full px-3 py-2 rounded-lg bg-muted border border-border text-foreground text-sm placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-ring/30"
                     />
                   </div>
@@ -254,10 +313,10 @@ const CreateCourse = () => {
                   <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                   <input
                     value={patientSearch}
-                    onChange={(e) => setPatientSearch(e.target.value)}
+                    onChange={(e) => setPatientSearch(e.target.value.toUpperCase())}
                     onKeyDown={(e) => e.key === 'Enter' && searchPatient()}
                     placeholder="Enter patient ID (e.g. CNT-48291)..."
-                    className="w-full pl-10 pr-4 py-2.5 rounded-lg bg-muted border border-border text-foreground text-sm placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-ring/30"
+                    className="w-full pl-10 pr-4 py-2.5 rounded-lg bg-muted border border-border text-foreground text-sm placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-ring/30 uppercase font-mono"
                   />
                 </div>
                 <button

@@ -679,32 +679,15 @@ const DoctorDashboard = () => {
           </div>
 
           {/* Stat Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4">
             <StatCard title={t('doctorDashboard.totalPatients')} value={dashData.total_patients} icon={Users} color="primary" change={+5} />
             <StatCard title={t('doctorDashboard.critical')} value={dashData.critical_count} icon={AlertTriangle} color="red" change={-2} />
             <StatCard title={t('doctorDashboard.highRisk')} value={dashData.high_risk_count} icon={Activity} color="orange" change={+8} />
             <StatCard title={t('doctorDashboard.stable')} value={dashData.stable_count} icon={TrendingUp} color="emerald" change={+12} />
             <StatCard title={t('doctorDashboard.compliance')} value={overallAdherence} icon={Pill} color="cyan" change={+3} suffix="%" />
-            <StatCard title={t('doctorDashboard.volunteersNearby')} value={volunteerStatus?.within_5km ?? 0} icon={Users} color="purple" change={0} />
           </div>
 
-          {/* AI Insights Bar */}
-          <motion.div className="glass-card rounded-3xl p-5 border border-primary/20 bg-gradient-to-r from-primary/5 to-secondary/5">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-purple-500/20 flex items-center justify-center"><Brain size={20} className="text-purple-400" /></div>
-                <div>
-                  <p className="text-sm font-semibold text-foreground">{t('doctorDashboard.aiPopulationInsights')}</p>
-                  <p className="text-xs text-muted-foreground">{t('doctorDashboard.aiInsightsDesc')}</p>
-                </div>
-              </div>
-              <div className="flex gap-4 text-xs">
-                <div><span className="text-muted-foreground">{t('doctorDashboard.avgRiskScore')}:</span> <span className="font-bold text-foreground">{practiceStats?.avg_risk_score?.toFixed(1) || '—'}</span></div>
-                <div><span className="text-muted-foreground">{t('doctorDashboard.projectedEscalations')}:</span> <span className="font-bold text-orange-400">{Math.round((dashData.high_risk_count + dashData.critical_count) * 0.3)}</span></div>
-                <div><span className="text-muted-foreground">{t('doctorDashboard.recommendation')}:</span> <span className="text-primary">{t('doctorDashboard.increaseFollowUp')}</span></div>
-              </div>
-            </div>
-          </motion.div>
+
 
           {/* Main Grid */}
           <div className="grid lg:grid-cols-5 gap-6">
@@ -728,7 +711,7 @@ const DoctorDashboard = () => {
                       {addPanelStep === 'search' && (
                         <div className="space-y-2">
                           <div className="flex gap-2">
-                            <input value={uidInput} onChange={e => setUidInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && searchByUid()} placeholder="CNT-XXXXX" className="flex-1 px-3 py-2 rounded-lg bg-background border border-border text-foreground text-xs placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-ring/30 font-mono" />
+                            <input value={uidInput} onChange={e => setUidInput(e.target.value.toUpperCase())} onKeyDown={e => e.key === 'Enter' && searchByUid()} placeholder="CNT-XXXXX" className="flex-1 px-3 py-2 rounded-lg bg-background border border-border text-foreground text-xs placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-ring/30 font-mono uppercase" />
                             <button onClick={searchByUid} disabled={searchingPatient || !uidInput.trim()} className="px-3 py-2 rounded-lg bg-primary text-white text-xs font-medium disabled:opacity-50 flex items-center gap-1">
                               {searchingPatient ? <Loader2 size={12} className="animate-spin" /> : <Search size={12} />} {t('doctorDashboard.find')}
                             </button>
@@ -943,26 +926,32 @@ const DoctorDashboard = () => {
                         </button>
                       </div>
                     </div>
-                  </div>
 
-                  {chartData.length > 0 && (
-                    <div className="glass-card rounded-3xl p-5">
-                      <h3 className="text-sm font-semibold mb-3 flex items-center gap-2"><Activity size={15} className="text-primary" /> {t('doctorDashboard.riskScoreTrend')}</h3>
-                      <div className="h-44">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <AreaChart data={chartData}>
-                            <defs><linearGradient id="riskGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.3}/><stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0}/></linearGradient></defs>
-                            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                            <XAxis dataKey="date" tick={{fontSize:10}} />
-                            <YAxis domain={[0,100]} tick={{fontSize:10}} />
-                            <Tooltip contentStyle={{backgroundColor:'hsl(var(--card))', borderRadius:12, border:'1px solid hsl(var(--border))', color: 'hsl(var(--foreground))'}} />
-                            <Area type="monotone" dataKey="riskScore" stroke="hsl(var(--primary))" fill="url(#riskGrad)" strokeWidth={2} />
-                          </AreaChart>
-                        </ResponsiveContainer>
+                    {/* Send Message to Patient */}
+                    <div className="mt-4 pt-4 border-t border-border/50">
+                      <p className="text-xs font-semibold text-foreground mb-2 flex items-center gap-1.5">
+                        <Send size={13} className="text-primary" /> {t('doctorDashboard.sendMessage')}
+                      </p>
+                      <div className="flex gap-2">
+                        <input
+                          value={messageText}
+                          onChange={e => setMessageText(e.target.value)}
+                          onKeyDown={e => e.key === 'Enter' && handleSendMessage()}
+                          placeholder={t('doctorDashboard.typeMessage')}
+                          className="flex-1 px-3.5 py-2 rounded-xl bg-muted/50 border border-border text-xs text-foreground focus:ring-2 focus:ring-primary/30 outline-none"
+                        />
+                        <button
+                          onClick={handleSendMessage}
+                          disabled={sendingMsg || !messageText.trim()}
+                          className="px-4 py-2 rounded-xl bg-primary text-white text-xs font-medium hover:bg-primary/90 disabled:opacity-50 flex items-center gap-1.5 shrink-0"
+                        >
+                          {sendingMsg ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />} {t('doctorDashboard.send')}
+                        </button>
                       </div>
                     </div>
-                  )}
+                  </div>
 
+                  {/* AI Clinical Insight - Positioned directly above Risk Score Trend */}
                   <div className="glass-card rounded-3xl p-5 bg-gradient-to-r from-purple-500/5 to-pink-500/5 border border-purple-500/20">
                     <div className="flex items-start gap-3">
                       <Brain size={18} className="text-purple-400 mt-0.5" />
@@ -982,6 +971,24 @@ const DoctorDashboard = () => {
                       </div>
                     </div>
                   </div>
+
+                  {chartData.length > 0 && (
+                    <div className="glass-card rounded-3xl p-5">
+                      <h3 className="text-sm font-semibold mb-3 flex items-center gap-2"><Activity size={15} className="text-primary" /> {t('doctorDashboard.riskScoreTrend')}</h3>
+                      <div className="h-44">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <AreaChart data={chartData}>
+                            <defs><linearGradient id="riskGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.3}/><stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0}/></linearGradient></defs>
+                            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                            <XAxis dataKey="date" tick={{fontSize:10}} />
+                            <YAxis domain={[0,100]} tick={{fontSize:10}} />
+                            <Tooltip contentStyle={{backgroundColor:'hsl(var(--card))', borderRadius:12, border:'1px solid hsl(var(--border))', color: 'hsl(var(--foreground))'}} />
+                            <Area type="monotone" dataKey="riskScore" stroke="hsl(var(--primary))" fill="url(#riskGrad)" strokeWidth={2} />
+                          </AreaChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                  )}
 
                   {detail.recent_check_ins?.[0]?.agent_report && (
                     <div className="glass-card rounded-3xl p-5 border-l-4 border-l-primary">
@@ -1123,13 +1130,7 @@ const DoctorDashboard = () => {
                     </div>
                   )}
 
-                  <div className="glass-card rounded-3xl p-5">
-                    <h3 className="text-sm font-semibold text-foreground mb-3">{t('doctorDashboard.sendMessage')}</h3>
-                    <div className="flex gap-3">
-                      <input value={messageText} onChange={e=>setMessageText(e.target.value)} placeholder={t('doctorDashboard.typeMessage')} className="flex-1 px-4 py-2.5 rounded-xl bg-muted/50 border border-border text-sm" />
-                      <button onClick={handleSendMessage} disabled={sendingMsg} className="px-5 py-2.5 rounded-xl bg-primary text-white text-sm font-medium hover:bg-primary/90 disabled:opacity-50 flex items-center gap-2"><Send size={14} /> {t('doctorDashboard.send')}</button>
-                    </div>
-                  </div>
+
                 </>
               ) : (
                 <div className="glass-card rounded-3xl p-12 text-center">
