@@ -9,6 +9,8 @@ import logging
 import re
 import string
 
+from qdrant_client import models
+
 from app.config import settings
 from app.rag.embeddings import _STOPWORDS, embed_texts
 from app.rag.indexer import knowledge_dir
@@ -19,6 +21,11 @@ logger = logging.getLogger(__name__)
 # In-memory corpus for the keyword fallback (whole-doc granularity is fine).
 _corpus: list[dict] = []
 _corpus_loaded = False
+
+# Payload `source` label used by backend/scripts/index_medquad.py for the general
+# QA corpus. Curated backend/knowledge/*.md chunks use their filename instead, so
+# filtering on this label is what lets curated docs rank above MedQuAD.
+MEDQUAD_SOURCE = "MedQuAD"
 
 
 def load_keyword_corpus() -> None:
@@ -66,36 +73,72 @@ def keyword_retrieve(query: str, top_k: int = settings.RAG_TOP_K) -> list[dict]:
     ]
 
 
+def _hit_to_dict(hit) -> dict:
+    """Normalise a Qdrant hit to {id, text, title, source, score}."""
+    return {
+        "id": hit.id,
+        # MedQuAD points store the QA text under "content"; the markdown
+        # knowledge chunks use "text". Read either seamlessly.
+        "text": hit.payload.get("content") or hit.payload.get("text", ""),
+        "title": hit.payload.get("title", ""),
+        "source": hit.payload.get("source", ""),
+        "score": round(hit.score or 0.0, 4),
+    }
+
+
+def _curated_filter() -> models.Filter:
+    """Filter that excludes the general MedQuAD corpus (curated docs rank first)."""
+    return models.Filter(
+        must_not=[
+            models.FieldCondition(key="source", match=models.MatchValue(value=MEDQUAD_SOURCE))
+        ]
+    )
+
+
+def _medquad_filter() -> models.Filter:
+    """Filter that selects only the general MedQuAD corpus (used as filler)."""
+    return models.Filter(
+        must=[
+            models.FieldCondition(key="source", match=models.MatchValue(value=MEDQUAD_SOURCE))
+        ]
+    )
+
+
 async def retrieve(query: str, top_k: int = settings.RAG_TOP_K) -> list[dict]:
     """
     Return relevant chunks as [{id, text, title, source, score}].
 
-    Uses Qdrant semantic search when NVIDIA embeddings succeed, otherwise falls
-    back to `keyword_retrieve`.
+    Curated `backend/knowledge/*` chunks are returned first; MedQuAD only fills
+    the slots the curated search doesn't cover, so curated care guidelines always
+    outrank the general QA corpus. Uses Qdrant semantic search when NVIDIA
+    embeddings succeed, otherwise falls back to `keyword_retrieve`.
     """
     vectors = await embed_texts([query], input_type="query")
     if vectors is None:
         return keyword_retrieve(query, top_k=top_k)
     try:
         client = get_client()
-        hits = client.search(
-            collection_name=settings.qdrant_collection_name,
+        collection = settings.qdrant_collection_name
+        # 1) Curated knowledge chunks first (exclude MedQuAD).
+        curated = client.search(
+            collection_name=collection,
             query_vector=vectors[0],
+            query_filter=_curated_filter(),
             limit=top_k,
             with_payload=True,
         )
-        return [
-            {
-                "id": hit.id,
-                # MedQuAD points store the QA text under "content"; the markdown
-                # knowledge chunks use "text". Read either seamlessly.
-                "text": hit.payload.get("content") or hit.payload.get("text", ""),
-                "title": hit.payload.get("title", ""),
-                "source": hit.payload.get("source", ""),
-                "score": round(hit.score or 0.0, 4),
-            }
-            for hit in hits
-        ]
+        hits = list(curated)
+        # 2) Fill remaining slots from MedQuAD when curated runs short.
+        if len(hits) < top_k:
+            medquad = client.search(
+                collection_name=collection,
+                query_vector=vectors[0],
+                query_filter=_medquad_filter(),
+                limit=top_k - len(hits),
+                with_payload=True,
+            )
+            hits.extend(medquad)
+        return [_hit_to_dict(h) for h in hits[:top_k]]
     except Exception as exc:
         logger.warning(f"[RAG] Qdrant search failed; using keyword fallback: {exc}")
         return keyword_retrieve(query, top_k=top_k)

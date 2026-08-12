@@ -4,6 +4,7 @@ Index knowledge docs (markdown) from `backend/knowledge/` into Qdrant.
 Idempotent: unchanged docs (same content hash on chunk 0) are skipped so we
 don't burn NVIDIA free-tier credits re-embedding. Never raises.
 """
+import asyncio
 import hashlib
 import logging
 from pathlib import Path
@@ -94,3 +95,14 @@ async def index_knowledge_base(verbose: bool = True) -> dict:
             results["errored"] += 1
             logger.warning(f"[RAG] index failed for {path.name}: {exc}")
     return results
+
+
+async def _run_index() -> None:
+    """CLI entrypoint — (re)index backend/knowledge/*.md into the active store
+    (Qdrant Cloud when QDRANT_URL + QDRANT_API_KEY are set, else local mode)."""
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    print(await index_knowledge_base(verbose=True))
+
+
+if __name__ == "__main__":
+    asyncio.run(_run_index())

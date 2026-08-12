@@ -13,7 +13,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams
+from qdrant_client.models import Distance, PayloadSchemaType, VectorParams
 
 from app.config import settings
 
@@ -42,20 +42,38 @@ def ensure_collection() -> None:
     """Create the knowledge collection, preserving data unless the vector size changed."""
     client = get_client()
     name = settings.qdrant_collection_name
-    if client.collection_exists(name):
+    recreate = not client.collection_exists(name)
+    if not recreate:
         try:
             existing = client.get_collection(name)
             if existing.config.params.vectors.size != settings.EMBEDDING_DIM:
                 client.delete_collection(name)
+                recreate = True
                 logger.warning("[RAG] recreated collection with new vector size")
-            else:
-                return  # keep existing indexed data
-        except Exception:
-            pass
-    client.recreate_collection(
-        collection_name=name,
-        vectors_config=VectorParams(
-            size=settings.EMBEDDING_DIM,
-            distance=Distance.COSINE,
-        ),
-    )
+        except Exception as exc:
+            logger.warning(f"[RAG] collection check failed ({exc}); recreating")
+            recreate = True
+    if recreate:
+        client.recreate_collection(
+            collection_name=name,
+            vectors_config=VectorParams(
+                size=settings.EMBEDDING_DIM,
+                distance=Distance.COSINE,
+            ),
+        )
+    _ensure_source_payload_index(client, name)
+
+
+def _ensure_source_payload_index(client: QdrantClient, name: str) -> None:
+    """Keyword payload index on `source` so the curated-first retriever filter
+    (see app/rag/retriever.py) can query on it. Idempotent — Qdrant errors when
+    the index already exists, which we treat as success."""
+    try:
+        client.create_payload_index(
+            collection_name=name,
+            field_name="source",
+            field_schema=PayloadSchemaType.KEYWORD,
+        )
+        logger.info("[RAG] created keyword payload index on 'source'")
+    except Exception as exc:
+        logger.info(f"[RAG] source payload index already present: {exc}")

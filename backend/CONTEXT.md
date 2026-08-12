@@ -51,7 +51,9 @@ in that language.
 - `embeddings.py` — NVIDIA `/v1/embeddings` (`nvidia/nv-embed-v1`, 4096-d) with deterministic
   keyword `fallback_embed`.
 - `indexer.py` — chunks `backend/knowledge/*.md` (content-hash idempotent). `indexer.knowledge_dir()`.
-- `retriever.py` — `retrieve(query, top_k)` (Qdrant or keyword fallback); `retrieve_for_checkin(answers)`.
+- `retriever.py` — `retrieve(query, top_k)` (Qdrant or keyword fallback; **curated
+  `backend/knowledge/*` chunks rank above MedQuAD** — requires the `source` keyword payload
+  index, created by `ensure_collection`); `retrieve_for_checkin(answers)`.
 - Corpus: `backend/knowledge/post_surgical_care.md` + anything else the agent should cite.
 
 ## Routers (`app/routers/`)
