@@ -84,7 +84,7 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
 
     return TokenResponse(
         access_token=token,
-        role=user.role,
+        role=user.role.value,
         user_id=user.id,
         full_name=user.full_name,
         unique_uid=user.unique_uid,
