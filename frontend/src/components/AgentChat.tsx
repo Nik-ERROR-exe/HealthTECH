@@ -123,8 +123,51 @@ const AgentChat = () => {
   const recognitionRef = useRef<any>(null);
   const voicesLoaded   = useRef(false);
   const alertAudioRef  = useRef<HTMLAudioElement | null>(null);
+  const voiceAutoSendTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const accumulatedTranscriptRef = useRef<string>('');
   const isAutoSubmittingRef = useRef<boolean>(false);
+
+  // ── Emergency alert ───────────────────────────────────────────────────────
+  const stopAlertSound = useCallback(() => {
+    if (alertAudioRef.current) {
+      alertAudioRef.current.pause();
+      alertAudioRef.current.currentTime = 0;
+    }
+  }, []);
+
+  const playAlertSound = useCallback(() => {
+    try {
+      if (!alertAudioRef.current) alertAudioRef.current = new Audio('/alert.mp3');
+      alertAudioRef.current.loop = true;
+      alertAudioRef.current.play().catch(() => { /* autoplay may be blocked — fine */ });
+    } catch { /* ignore */ }
+  }, []);
+
+  const triggerEmergency = useCallback((contacts?: EmergencyContacts | null) => {
+    window.speechSynthesis.cancel();
+    recognitionRef.current?.stop();
+    setIsListening(false);
+    if (contacts) setEmergencyContacts(contacts);
+    setEmergencyActive(true);
+    playAlertSound();
+  }, [playAlertSound]);
+
+  const dismissEmergency = useCallback(() => {
+    stopAlertSound();
+    setEmergencyActive(false);
+  }, [stopAlertSound]);
+
+  const isCheckinActive = faceAnalyzerEnabled && phase !== 'idle' && phase !== 'done';
+
+  // ── TTS & Question display helpers (declared before useEffect usage) ────
+  const getLanguageCode = (lang: string): string => {
+    const map: Record<string, string> = {
+      en: 'en-US',
+      hi: 'hi-IN',
+      mr: 'mr-IN',
+    };
+    return map[lang] || 'en-US';
+  };
 
   const clearVoiceAutoSendTimer = useCallback(() => {
     if (voiceAutoSendTimer.current) {

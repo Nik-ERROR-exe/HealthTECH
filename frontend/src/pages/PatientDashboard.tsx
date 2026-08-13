@@ -290,7 +290,9 @@ const PatientDashboard = () => {
   useEffect(() => {
     if (activePatientId) {
       const status = localStorage.getItem(`carenetra_payment_status_${activePatientId}`);
-      setIsPaid(status === 'PAID');
+      setIsPaid(status !== 'UNPAID' && status !== 'LOCKED');
+    } else {
+      setIsPaid(true);
     }
   }, [activePatientId]);
 
@@ -539,8 +541,9 @@ const PatientDashboard = () => {
   const riskConfig = getRiskConfig(riskTier);
   const RiskIcon = riskConfig.icon;
 
-  const totalMeds = data.medications_today.length;
-  const takenCount = data.medications_today.filter(m => medsState[m.id]).length;
+  const medsList = data.medications_today || [];
+  const totalMeds = medsList.length;
+  const takenCount = medsList.filter(m => medsState[m.id] || m.taken).length;
   const missedCount = totalMeds - takenCount;
   const adherencePercent = totalMeds ? Math.round((takenCount / totalMeds) * 100) : 0;
   const adherenceData = [
@@ -551,6 +554,12 @@ const PatientDashboard = () => {
   const vitals = data.vital_signs || {};
   const careTeam = data.care_team || [];
   const appointments = data.upcoming_appointments || [];
+
+  const formattedLastCheckIn = (() => {
+    if (!data.last_check_in) return null;
+    const d = new Date(data.last_check_in);
+    return isNaN(d.getTime()) ? data.last_check_in : d.toLocaleDateString();
+  })();
 
   return (
     <DashboardLayout>
@@ -571,15 +580,15 @@ const PatientDashboard = () => {
                 <span className="text-xs font-medium text-primary uppercase tracking-wider">AI Health Assistant</span>
               </div>
               <h1 className="text-3xl md:text-4xl font-bold text-foreground">
-                {greeting}, {data.full_name.split(' ')[0]}! 👋
+                {greeting}, {(data.full_name || 'Patient').split(' ')[0]}! 👋
               </h1>
               <p className="text-muted-foreground mt-1 flex items-center gap-2">
                 <Activity size={14} className="text-primary" />
-                Health status: <span className="font-medium text-foreground">{data.health_status}</span>
+                Health status: <span className="font-medium text-foreground">{data.health_status || 'Doing Well'}</span>
               </p>
-              {data.last_check_in && (
+              {formattedLastCheckIn && (
                 <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
-                  <Clock size={12} /> Last check-in: {new Date(data.last_check_in).toLocaleDateString()}
+                  <Clock size={12} /> Last check-in: {formattedLastCheckIn}
                 </p>
               )}
             </div>

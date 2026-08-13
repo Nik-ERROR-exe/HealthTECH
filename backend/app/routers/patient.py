@@ -142,9 +142,10 @@ def get_patient_dashboard(
                 RiskScore.patient_id == profile.id
             ).order_by(RiskScore.created_at.desc()).first()
 
-        health_status = _tier_to_health_status(
-            latest_score.tier.value if latest_score else None
-        )
+        tier_val = None
+        if latest_score and latest_score.tier:
+            tier_val = latest_score.tier.value if hasattr(latest_score.tier, 'value') else str(latest_score.tier)
+        health_status = _tier_to_health_status(tier_val)
 
         # Last check-in time
         last_checkin = db.query(CheckIn).filter(
