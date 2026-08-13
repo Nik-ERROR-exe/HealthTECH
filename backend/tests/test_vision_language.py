@@ -24,4 +24,5 @@ def test_advice_prompt_accepts_each_language():
 
 def test_static_advice_unchanged():
     assert "contact" in _static_advice("SEVERE", 8.0)
-    assert "stable" in _static_advice("NORMAL", 1.0)
+    assert "inflammation" in _static_advice("NORMAL", 1.0)
+

@@ -55,9 +55,9 @@ type Phase = 'idle' | 'starting' | 'chatting' | 'photo' | 'submitting' | 'done';
 
 const TIER_CONFIG = {
   GREEN:     { color: 'text-emerald-400', icon: '🟢', label: 'Stable' },
-  YELLOW:    { color: 'text-yellow-400',  icon: '🟡', label: 'Watch' },
-  ORANGE:    { color: 'text-orange-400',  icon: '🟠', label: 'Attention needed' },
-  RED:       { color: 'text-red-400',     icon: '🔴', label: 'High risk' },
+  YELLOW:    { color: 'text-yellow-400',  icon: '🟡', label: 'Moderate Risk' },
+  ORANGE:    { color: 'text-orange-400',  icon: '🟠', label: 'High Risk' },
+  RED:       { color: 'text-red-400',     icon: '🔴', label: 'Critical Risk' },
   EMERGENCY: { color: 'text-red-600',     icon: '🚨', label: 'Emergency' },
 } as const;
 
@@ -488,18 +488,14 @@ const AgentChat = () => {
     try {
       if (sessionId) {
         await conversationApi.uploadWound(sessionId, file);
+        await runPipeline();
+      } else {
+        const res = await conversationApi.dashboardUploadWound(file);
+        if (res.data?.session_id) {
+          setSessionId(res.data.session_id);
+        }
+        await runPipeline();
       }
-      const res = await conversationApi.dashboardUploadWound(file);
-      const data = res.data;
-      if (data.session_id) setSessionId(data.session_id);
-
-      const nurseMsg = data.nurse_message || data.summary || "I've analyzed your wound photo. How is your pain level right now?";
-      const nextQ: Question = {
-        id: 'wound_pain_level',
-        question: nurseMsg,
-        type: 'text',
-      };
-      displayQuestion(nextQ);
     } catch {
       toast.error('Photo upload failed. Please try again.');
       setPhase('chatting');

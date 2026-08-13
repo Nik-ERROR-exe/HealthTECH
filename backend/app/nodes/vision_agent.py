@@ -321,8 +321,8 @@ def _static_advice(severity: str, score: float) -> str:
             "or pain increases."
         )
     return (
-        "Your wound looks stable. Keep it clean and dry, follow your dressing "
-        "schedule, and contact your doctor if anything changes."
+        "Your wound scan shows no acute visual inflammation. Keep it clean and dry, follow your dressing "
+        "schedule, and contact your doctor if you experience pain or changes."
     )
 
 

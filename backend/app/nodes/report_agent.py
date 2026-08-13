@@ -40,7 +40,10 @@ def build_report_prompt(state: AgentState, patient_context: str, doc_excerpts: l
         for excerpt in doc_excerpts[:3]:
             lines.append(f"- {str(excerpt)[:400]}")
     lines.append("")
-    lines.append("Keep the report under 300 words, factual, and specific to this patient.")
+    lines.append("STRICT ACCURACY CONSTRAINTS:")
+    lines.append("- You must generate the report EXCLUSIVELY based on the provided check-in inputs, symptoms, and wound findings above.")
+    lines.append("- Do NOT invent, infer, or hallucinate outside context, unmentioned symptoms, or unverified medical history.")
+    lines.append("- Keep the report under 300 words, strictly factual, and specific to this patient's check-in answers.")
     return "\n".join(lines)
 
 
@@ -62,7 +65,9 @@ async def _generate_report(state: AgentState, patient_context: str, doc_excerpts
 
     system = (
         "You are a medical documentation assistant. Produce ONLY the report body "
-        "as plain text with the requested sections. Do not add disclaimers."
+        "as plain text with the requested sections. You MUST generate the report EXCLUSIVELY "
+        "from reported symptoms, check-in answers, and wound data provided above. "
+        "Do NOT invent, infer, or add outside context, unmentioned symptoms, or unverified medical history."
     )
     try:
         resp = await llm_client.chat.completions.create(

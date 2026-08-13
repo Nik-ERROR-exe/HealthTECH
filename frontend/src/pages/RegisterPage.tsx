@@ -111,14 +111,14 @@ const RegisterPage = () => {
 
              <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
                {/* Role selector */}
-               <div className="grid grid-cols-4 gap-3">
+               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                  {ROLES.map((r) => (
                   <label
                     key={r.value}
-                    className={`flex flex-col items-center gap-2 p-3 rounded-xl border transition-all cursor-pointer ${
+                    className={`flex flex-col items-center justify-center gap-1.5 p-3 rounded-xl border transition-all cursor-pointer ${
                       selectedRole === r.value
-                        ? 'bg-primary/10 border-primary text-primary'
-                        : 'bg-muted/30 border-border text-muted-foreground hover:bg-muted/50'
+                        ? 'bg-primary/10 border-primary text-primary font-semibold shadow-sm'
+                        : 'bg-muted/30 border-border text-muted-foreground hover:bg-muted/50 hover:text-foreground'
                     }`}
                   >
                     <input
@@ -128,7 +128,7 @@ const RegisterPage = () => {
                       className="sr-only"
                     />
                     <r.icon size={20} />
-                    <span className="text-[10px] font-bold uppercase tracking-wider">{t(`auth.roles.${r.value.toLowerCase()}`) || r.label}</span>
+                    <span className="text-xs font-semibold">{r.label}</span>
                   </label>
                 ))}
               </div>

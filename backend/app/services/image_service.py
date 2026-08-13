@@ -12,47 +12,51 @@ from app.rag.retriever import retrieve
 logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = (
-    "You are CARA, an AI clinical wound analyst assistant. Answer the patient's question "
-    "based STRICTLY and ONLY on the provided information: the wound image analysis metadata and the medical knowledge context. "
-    "Do not invent any medical advice. If the question is not covered by the provided context or image analysis, "
-    "explicitly say 'I don't have enough information to answer that based on your wound analysis and medical knowledge.'"
+    "You are CARA, an AI clinical wound analyst assistant. Your task is to provide helpful, "
+    "accurate, and empathetic answers to patient questions about their wound analysis.\n\n"
+    "INSTRUCTIONS:\n"
+    "1. Answer the patient's question based on the provided Medical Knowledge Context (RAG) and Wound Image Metadata.\n"
+    "2. If the retrieved medical knowledge context directly answers the question, synthesize it clearly and empathetically.\n"
+    "3. If the retrieved context does not answer the question or lacks specific details, answer based on the provided wound image metadata (severity, redness_detected, swelling_detected, texture_change_detected, wound_score, summary, and AI care advice).\n"
+    "4. Do NOT use static hardcoded text or ungrounded claims. Provide a clear, factual, and dynamic clinical response."
 )
 
 
 async def answer_wound_image_chat(analysis_id: str, query: str, db: Session) -> str:
     """
-    Answers a patient follow-up question grounded strictly in stored wound analysis metadata
+    Answers a patient follow-up question grounded in stored wound analysis metadata
     and Qdrant RAG retrieved medical knowledge chunks.
     """
     analysis = db.query(WoundAnalysis).filter(WoundAnalysis.id == analysis_id).first()
     if not analysis:
         raise ValueError("Wound analysis record not found")
 
-    # 1. Query RAG vector store using analysis summary and query
-    rag_query = f"{analysis.analysis_summary or ''} {query}".strip()
+    # 1. Query Qdrant RAG vector store using user's query and analysis context
+    rag_query = f"{query} {analysis.analysis_summary or ''}".strip()
     rag_context = ""
     try:
         rag_hits = await retrieve(rag_query, top_k=3)
         if rag_hits:
             rag_context = "\n\n".join([f"[{hit.get('title', 'Medical Guide')}]: {hit.get('text', '')}" for hit in rag_hits if hit.get('text')])
     except Exception as exc:
-        logger.warning(f"[ImageService] RAG retrieval failed: {exc}")
+        logger.warning(f"[ImageService] Qdrant RAG retrieval failed: {exc}")
 
+    severity_val = analysis.severity.value if hasattr(analysis.severity, 'value') else str(analysis.severity)
     metadata_text = (
-        f"Wound Severity: {analysis.severity.value if hasattr(analysis.severity, 'value') else analysis.severity}\n"
+        f"Wound Severity: {severity_val}\n"
         f"Analysis Summary: {analysis.analysis_summary or 'No summary recorded.'}\n"
         f"Redness Detected: {'Yes' if analysis.redness_detected else 'No'}\n"
         f"Swelling Detected: {'Yes' if analysis.swelling_detected else 'No'}\n"
         f"Texture Change Detected: {'Yes' if analysis.texture_change_detected else 'No'}\n"
         f"Wound Score: {analysis.wound_score}/10\n"
-        f"AI Care Advice: {analysis.ai_advice or 'Follow standard wound care.'}\n"
+        f"AI Care Advice: {analysis.ai_advice or 'Follow standard wound care instructions.'}\n"
     )
 
-    context_str = f"Image Analysis:\n{metadata_text}\n"
+    context_str = f"Wound Image Metadata:\n{metadata_text}\n"
     if rag_context:
-        context_str += f"\nMedical Knowledge (RAG):\n{rag_context}\n"
+        context_str += f"\nMedical Knowledge (Qdrant RAG):\n{rag_context}\n"
     else:
-        context_str += "\nMedical Knowledge (RAG):\nNo additional knowledge chunks found.\n"
+        context_str += "\nMedical Knowledge (Qdrant RAG):\nNo specific guideline chunks matched this query.\n"
 
     full_system_prompt = f"{SYSTEM_PROMPT}\n\n[CONTEXT INFORMATION]\n{context_str}"
 
@@ -66,17 +70,37 @@ async def answer_wound_image_chat(analysis_id: str, query: str, db: Session) -> 
             model=LLM_MODEL,
             messages=messages,
             temperature=settings.LLM_TEMPERATURE,
-            max_tokens=300,
+            max_tokens=350,
         )
         answer = (resp.choices[0].message.content or "").strip()
         if not answer:
-            answer = "Based on your wound image analysis, the area appears stable. Please continue keeping it clean and dry."
+            # Metadata-grounded fallback
+            findings = []
+            if analysis.redness_detected:
+                findings.append("redness")
+            if analysis.swelling_detected:
+                findings.append("swelling")
+            if analysis.texture_change_detected:
+                findings.append("texture changes")
+            finding_str = f"Noted findings: {', '.join(findings)}." if findings else "No acute inflammation detected."
+            answer = (
+                f"Based on your wound scan (Severity: {severity_val}, Score: {analysis.wound_score}/10), "
+                f"{finding_str} {analysis.ai_advice or 'Please keep the wound clean and dry.'}"
+            )
         return answer
     except Exception as exc:
         logger.error(f"[ImageService] LLM chat failed: {exc}")
-        # Static fallback grounded response
+        # Metadata-grounded fallback without hardcoded static string
+        findings = []
+        if analysis.redness_detected:
+            findings.append("redness")
+        if analysis.swelling_detected:
+            findings.append("swelling")
+        if analysis.texture_change_detected:
+            findings.append("texture changes")
+        finding_str = f"Noted findings: {', '.join(findings)}." if findings else "No acute inflammation detected."
         return (
-            f"Based on your image analysis summary ({analysis.analysis_summary or 'wound scan'}), "
-            f"your wound severity is rated as {analysis.severity}. "
-            f"Please keep the area clean, dry, and report any spreading redness or swelling to your doctor."
+            f"Based on your wound analysis ({analysis.analysis_summary or 'wound scan'}), "
+            f"your wound severity is rated as {severity_val} (Score: {analysis.wound_score}/10). {finding_str} "
+            f"{analysis.ai_advice or 'Keep the area clean and contact your doctor if symptoms worsen.'}"
         )

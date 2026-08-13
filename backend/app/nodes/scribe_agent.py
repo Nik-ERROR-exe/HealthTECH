@@ -101,7 +101,7 @@ Mapping rules:
 - Fatigue: 1-3 energetic; 4-6 moderate tiredness; 7-9 very fatigued; 10 bedridden.
 - symptom_severity_score: 0-2 well; 3-5 mild; 6-8 moderate/severe; 9-10 critical.
 - pain_level is 1-10 when the patient gives a scale, else null.
-- If a value is not mentioned, use null (or unknown for fever). Do NOT invent data."""
+- STRICT INPUT ADHERENCE: Extract data EXCLUSIVELY from what the patient explicitly stated in the conversation transcript. Do NOT invent, assume, or pull in outside context or symptoms not present in the transcript. If a value is not mentioned, use null (or unknown for fever)."""
 
 
 def parse_scribe_json(raw: Optional[str]) -> Optional[Dict[str, Any]]:

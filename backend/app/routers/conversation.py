@@ -65,24 +65,24 @@ os.makedirs(WOUND_UPLOAD_DIR, exist_ok=True)
 # ── Tier → patient-friendly message (never exposes raw scores) ───────────────
 TIER_MESSAGES = {
     "GREEN": (
-        "You're doing great! Everything looks stable today. "
-        "Keep taking your medications on schedule and I'll check in with you again soon."
+        "Your health check-in is complete. Your overall condition is STABLE. "
+        "Please continue following your recovery plan and taking your medications as prescribed."
     ),
     "YELLOW": (
-        "Thanks for checking in. A couple of things caught my attention — nothing to panic about, "
-        "but worth keeping a close eye on. Rest well and stay hydrated today."
+        "Your check-in indicates MODERATE RISK. Some reported symptoms require close monitoring. "
+        "Please rest, stay hydrated, and follow your care instructions carefully."
     ),
     "ORANGE": (
-        "I've flagged a few things to your doctor. They'll be notified shortly. "
-        "Please rest and avoid any strenuous activity for now."
+        "Your check-in indicates HIGH RISK. Your care team and supervising doctor have been notified for clinical review. "
+        "Please rest and avoid strenuous activity while your doctor reviews your status."
     ),
     "RED": (
-        "I'm concerned about some of your symptoms and have sent an urgent alert to your doctor "
-        "and your emergency contact. Please rest immediately and keep your phone close."
+        "Your check-in indicates CRITICAL RISK. An urgent alert has been dispatched to your doctor "
+        "and emergency contact. Please rest immediately and keep your phone nearby."
     ),
     "EMERGENCY": (
-        "Your symptoms are very serious. I've notified your doctor for emergency action. "
-        "Please do not be alone right now. If you are in immediate danger, call emergency services."
+        "Your symptoms indicate an EMERGENCY situation. Immediate medical action is required. "
+        "Emergency alerts have been sent to your care network. If you are in immediate danger, call emergency services right away."
     ),
 }
 

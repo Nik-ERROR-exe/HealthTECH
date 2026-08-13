@@ -309,6 +309,13 @@ def _mark_checklist_from_envelope(state: Dict[str, Any], env: Dict[str, Any]) ->
                     item["satisfied"] = True
         _mark_canonical_field_as_collected(state, key)
     qid = env.get("question_id")
+    qtype = env.get("question_type")
+    if qid == "wound_photo" or qtype == "photo":
+        state["has_requested_image"] = True
+    if state.get("has_requested_image"):
+        for item in state.get("checklist", []):
+            if item["id"] == "wound_photo":
+                item["satisfied"] = True
     if qid in checklist_ids:
         for item in state.get("checklist", []):
             if item["id"] == qid:
@@ -322,14 +329,14 @@ def _format_checklist_block(state: Dict[str, Any]) -> str:
     needs_photo = False
     for item in state.get("checklist", []):
         status = ""
-        if item.get("satisfied"):
+        if item.get("satisfied") or (item["id"] == "wound_photo" and state.get("has_requested_image")):
             status = " (already collected)"
         elif item.get("declined"):
             status = " (patient declined — treat as done)"
         requirement = "required" if item.get("required") else "nice-to-have"
         hint = _personalize(item.get("hint", ""), state)
         lines.append(f"- {item['id']} ({requirement}){status}: {hint}")
-        if item["id"] == "wound_photo" and not item.get("satisfied"):
+        if item["id"] == "wound_photo" and not item.get("satisfied") and not state.get("has_requested_image"):
             needs_photo = True
     header = (
         "STILL-NEEDED DATA POINTS — ask about these until satisfied (a point is "
@@ -541,6 +548,7 @@ def _make_state_v2(ctx: Dict[str, Any], language: str) -> Dict[str, Any]:
         "covered":               [],
         "question_queue":        [],   # only used by the static fallback
         "adaptive_count":        0,
+        "has_requested_image":   False,
     }
 
 
@@ -649,13 +657,21 @@ async def nurse_respond(
         next_q = _static_next_question(state, language, question_id, answer_text, reask=True)
         return {"next_question": next_q, "state": state, "should_submit": next_q is None}
 
-    # Photo upload acknowledgment
-    if is_photo_ack:
+    # Photo upload acknowledgment or previous request check
+    if is_photo_ack or question_id == "wound_photo":
         state["collected"]["wound_photo_taken"] = True
+        state["has_requested_image"] = True
         for item in state.get("checklist", []):
             if item["id"] == "wound_photo":
                 item["satisfied"] = True
-        logger.info("[Nurse] wound photo_uploaded acknowledged")
+        logger.info("[Nurse] wound photo acknowledged/satisfied")
+        # Immediately complete check-in after photo handling to break any loop
+        return {"next_question": None, "state": state, "should_submit": True}
+
+    if state.get("has_requested_image"):
+        for item in state.get("checklist", []):
+            if item["id"] == "wound_photo":
+                item["satisfied"] = True
 
     # ── Emergency keyword intercept ──────────────────────────────────
     # Fast regex guardrail BEFORE any LLM/RAG call: a red-flag phrase force-
@@ -703,6 +719,10 @@ async def nurse_respond(
     if env is None:
         next_q = _static_next_question(state, language, question_id, answer_text)
         return {"next_question": next_q, "state": state, "should_submit": next_q is None}
+
+    # If the LLM returned question_id == wound_photo or type == photo, record that photo was requested exactly once
+    if env.get("question_id") == "wound_photo" or env.get("question_type") == "photo":
+        state["has_requested_image"] = True
 
     # Merge incremental extraction + mark checklist
     state["collected"] = merge_collected(state.get("collected", {}), env.get("collected"))
