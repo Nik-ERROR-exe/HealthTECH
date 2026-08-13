@@ -9,6 +9,7 @@ import {
   AlertOctagon, Phone, CheckCircle, XCircle, LineChart as LineChartIcon
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { getToken } from '@/lib/auth';
 import DashboardLayout from '@/components/DashboardLayout';
 import ImageChat from '@/components/ImageChat';
 import { getUser } from '@/lib/auth';
