@@ -16,7 +16,7 @@ import DashboardLayout from '@/components/DashboardLayout';
 // import EmergencyBanner from '@/components/EmergencyBanner';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
-import api, { doctorApi, triggerCheckin } from '@/lib/api';
+import api, { doctorApi, triggerCheckin, getPendingAlerts, dispatchAmbulance, acknowledgeAlert } from '@/lib/api';
 import Lenis from '@studio-freight/lenis';
 import { getUser } from '@/lib/auth';
 import {
@@ -229,90 +229,91 @@ const DoctorDashboard = () => {
   const [volunteerStatus, setVolunteerStatus] = useState<{ online: number; within_5km: number } | null>(null);
 
   // ── Pending Emergency Alerts State & Audio Alarm ──
-  // TODO: Re-enable when emergency alert system is needed
-  // const [pendingEmergencyAlerts, setPendingEmergencyAlerts] = useState<any[]>([]);
-  // const [showAlertModal, setShowAlertModal] = useState(false);
-  // const [currentEmergencyAlert, setCurrentEmergencyAlert] = useState<any | null>(null);
-  // const [dispatchingAmbulance, setDispatchingAmbulance] = useState(false);
-  // const alarmAudioRef = useRef<HTMLAudioElement | null>(null);
+  const [pendingEmergencyAlerts, setPendingEmergencyAlerts] = useState<any[]>([]);
+  const [showAlertModal, setShowAlertModal] = useState(false);
+  const [currentEmergencyAlert, setCurrentEmergencyAlert] = useState<any | null>(null);
+  const [dispatchingAmbulance, setDispatchingAmbulance] = useState(false);
+  const alarmAudioRef = useRef<HTMLAudioElement | null>(null);
 
-  // useEffect(() => {
-  //   alarmAudioRef.current = new Audio('/alert.mp3');
-  //   alarmAudioRef.current.loop = true;
+  useEffect(() => {
+    alarmAudioRef.current = new Audio('/alert.mp3');
+    alarmAudioRef.current.loop = true;
 
-  //   const checkPendingAlerts = async () => {
-  //     try {
-  //       const data = await getPendingAlerts();
-  //       if (Array.isArray(data) && data.length > 0) {
-  //         setPendingEmergencyAlerts(data);
-  //         if (!showAlertModal) {
-  //           const latest = data[0];
-  //           setCurrentEmergencyAlert(latest);
-  //           setShowAlertModal(true);
-  //           if (alarmAudioRef.current) {
-  //             alarmAudioRef.current.play().catch(e => console.warn('Audio play blocked', e));
-  //           }
-  //         }
-  //       }
-  //     } catch {
-  //       // ignore polling errors
-  //     }
-  //   };
+    const checkPendingAlerts = async () => {
+      const isDemoMode = localStorage.getItem('carenetra_demo_mode') === 'true';
+      if (isDemoMode) return;
+      try {
+        const data = await getPendingAlerts();
+        if (Array.isArray(data) && data.length > 0) {
+          setPendingEmergencyAlerts(data);
+          if (!showAlertModal) {
+            const latest = data[0];
+            setCurrentEmergencyAlert(latest);
+            setShowAlertModal(true);
+            if (alarmAudioRef.current) {
+              alarmAudioRef.current.play().catch(e => console.warn('Audio play blocked', e));
+            }
+          }
+        }
+      } catch {
+        // ignore polling errors
+      }
+    };
 
-  //   checkPendingAlerts();
-  //   const interval = setInterval(checkPendingAlerts, 5000);
-  //   return () => {
-  //     clearInterval(interval);
-  //     if (alarmAudioRef.current) {
-  //       alarmAudioRef.current.pause();
-  //       alarmAudioRef.current.currentTime = 0;
-  //     }
-  //   };
-  // }, [showAlertModal]);
+    checkPendingAlerts();
+    const interval = setInterval(checkPendingAlerts, 4000);
+    return () => {
+      clearInterval(interval);
+      if (alarmAudioRef.current) {
+        alarmAudioRef.current.pause();
+        alarmAudioRef.current.currentTime = 0;
+      }
+    };
+  }, [showAlertModal]);
 
-  // const handleDispatchAmbulance = async () => {
-  //   if (!currentEmergencyAlert) return;
-  //   setDispatchingAmbulance(true);
-  //   try {
-  //     await dispatchAmbulance(currentEmergencyAlert.alert_id);
-  //     toast.success('🚑 Ambulance dispatched successfully!');
-  //     if (alarmAudioRef.current) {
-  //       alarmAudioRef.current.pause();
-  //       alarmAudioRef.current.currentTime = 0;
-  //     }
-  //     setShowAlertModal(false);
-  //     setCurrentEmergencyAlert(null);
-  //     fetchDashboard();
-  //   } catch (err: any) {
-  //     toast.error(err.response?.data?.detail || 'Failed to dispatch ambulance');
-  //   } finally {
-  //     setDispatchingAmbulance(false);
-  //   }
-  // };
+  const handleDispatchAmbulance = async () => {
+    if (!currentEmergencyAlert) return;
+    setDispatchingAmbulance(true);
+    try {
+      await dispatchAmbulance(currentEmergencyAlert.alert_id);
+      toast.success('🚑 Ambulance dispatched successfully!');
+      if (alarmAudioRef.current) {
+        alarmAudioRef.current.pause();
+        alarmAudioRef.current.currentTime = 0;
+      }
+      setShowAlertModal(false);
+      setCurrentEmergencyAlert(null);
+      fetchDashboard();
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Failed to dispatch ambulance');
+    } finally {
+      setDispatchingAmbulance(false);
+    }
+  };
 
-  // const handleCallPatient = () => {
-  //   if (currentEmergencyAlert?.patient_phone && currentEmergencyAlert.patient_phone !== 'N/A') {
-  //     window.location.href = `tel:${currentEmergencyAlert.patient_phone}`;
-  //   } else {
-  //     toast.info(`Calling patient ${currentEmergencyAlert?.patient_name || ''}... (demo)`);
-  //   }
-  // };
+  const handleCallPatient = () => {
+    if (currentEmergencyAlert?.patient_phone && currentEmergencyAlert.patient_phone !== 'N/A') {
+      window.location.href = `tel:${currentEmergencyAlert.patient_phone}`;
+    } else {
+      toast.info(`Calling patient ${currentEmergencyAlert?.patient_name || ''}...`);
+    }
+  };
 
-  // const handleAcknowledgeAlert = async () => {
-  //   if (!currentEmergencyAlert) return;
-  //   try {
-  //     await acknowledgeAlert(currentEmergencyAlert.alert_id);
-  //     toast.info('Alert acknowledged');
-  //   } catch {
-  //     // ignore
-  //   }
-  //   if (alarmAudioRef.current) {
-  //     alarmAudioRef.current.pause();
-  //     alarmAudioRef.current.currentTime = 0;
-  //   }
-  //   setShowAlertModal(false);
-  //   setCurrentEmergencyAlert(null);
-  // };
+  const handleAcknowledgeAlert = async () => {
+    if (!currentEmergencyAlert) return;
+    try {
+      await acknowledgeAlert(currentEmergencyAlert.alert_id);
+      toast.info('Alert acknowledged');
+    } catch {
+      // ignore
+    }
+    if (alarmAudioRef.current) {
+      alarmAudioRef.current.pause();
+      alarmAudioRef.current.currentTime = 0;
+    }
+    setShowAlertModal(false);
+    setCurrentEmergencyAlert(null);
+  };
 
   useEffect(() => { fetchDashboard(); fetchPracticeStats(); }, []);
 
@@ -1236,7 +1237,6 @@ const DoctorDashboard = () => {
         </motion.div>
 
         {/* ── Real-time Emergency Alert Popup Modal ── */}
-        {/* TODO: Re-enable when emergency alert system is needed
         <AnimatePresence>
           {showAlertModal && currentEmergencyAlert && (
             <motion.div
@@ -1315,7 +1315,6 @@ const DoctorDashboard = () => {
             </motion.div>
           )}
         </AnimatePresence>
-        */}
 
       {/* Compact WhatsApp-Style Floating Chat Widget (Bottom-Right) */}
       <AnimatePresence>
