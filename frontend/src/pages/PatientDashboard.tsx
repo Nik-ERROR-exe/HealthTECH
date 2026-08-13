@@ -181,6 +181,13 @@ const PatientDashboard = () => {
   const isAbhay = isAbhayPatientEmail(user?.email) || user?.unique_uid === ABHAY_UID;
 
   const fetchDashboard = async () => {
+    const token = getToken();
+    const currentUser = getUser();
+    if (!token || (currentUser && currentUser.role !== 'PATIENT')) {
+      setLoading(false);
+      return;
+    }
+
     if (isAbhay) {
       setData(abhayPatientDashboardData as any);
       setLoading(false);
@@ -226,6 +233,10 @@ const PatientDashboard = () => {
   };
 
   const fetchMessages = async () => {
+    const token = getToken();
+    const currentUser = getUser();
+    if (!token || (currentUser && currentUser.role !== 'PATIENT')) return;
+
     if (isAbhay) {
       setMessages(abhayMessages as any);
       return;
@@ -237,6 +248,10 @@ const PatientDashboard = () => {
   };
 
   const fetchCheckinHistory = async () => {
+    const token = getToken();
+    const currentUser = getUser();
+    if (!token || (currentUser && currentUser.role !== 'PATIENT')) return;
+
     if (isAbhay) {
       setCheckinHistory(abhayCheckinHistory as any);
       return;
@@ -248,6 +263,10 @@ const PatientDashboard = () => {
   };
 
   const fetchWoundHistory = async () => {
+    const token = getToken();
+    const currentUser = getUser();
+    if (!token || (currentUser && currentUser.role !== 'PATIENT')) return;
+
     if (isAbhay) {
       setWoundHistory(abhayWoundHistory as any);
       return;
@@ -259,6 +278,10 @@ const PatientDashboard = () => {
   };
 
   const fetchNearbyAmbulances = async () => {
+    const token = getToken();
+    const currentUser = getUser();
+    if (!token || (currentUser && currentUser.role !== 'PATIENT')) return;
+
     if (isAbhay) {
       setNearbyVolunteers(2);
       return;
