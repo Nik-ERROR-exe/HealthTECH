@@ -4,7 +4,7 @@ import {
   Users, AlertTriangle, Search, Activity, TrendingUp, Clock, Pill,
   Loader2, Send, Plus, X, ChevronRight, UserSearch, BookOpen, Check, Camera,
   Bell, Sparkles, TrendingDown, Heart, Zap, Brain, PieChart as PieChartIcon,
-  Calendar, Filter, Volume2, Pause, Square
+  Calendar, Filter, Volume2, Pause, Square, MessageSquare
 } from 'lucide-react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -206,6 +206,16 @@ const DoctorDashboard = () => {
   const [customTime, setCustomTime] = useState('');
   const [messageText, setMessageText] = useState('');
   const [sendingMsg, setSendingMsg] = useState(false);
+  const [showDoctorChatModal, setShowDoctorChatModal] = useState(false);
+  const [chatMessages, setChatMessages] = useState<Array<{ id: string; sender: 'doctor' | 'patient'; message: string; created_at: string }>>([
+    { id: '1', sender: 'doctor', message: 'Hello! Please complete your daily check-in on time.', created_at: new Date(Date.now() - 36000000).toISOString() },
+    { id: '2', sender: 'patient', message: 'Thank you Doctor! I have logged my morning check-in.', created_at: new Date(Date.now() - 18000000).toISOString() }
+  ]);
+  const doctorChatEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    doctorChatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chatMessages, showDoctorChatModal]);
   const [showAddPanel, setShowAddPanel] = useState(false);
   const [addPanelStep, setAddPanelStep] = useState<'search' | 'pick-course' | 'done'>('search');
   const [uidInput, setUidInput] = useState('');
@@ -394,10 +404,20 @@ const DoctorDashboard = () => {
 
   const handleSendMessage = async () => {
     if (!messageText.trim() || !selectedPatientId) return;
+    const textToSend = messageText.trim();
     setSendingMsg(true);
     try {
-      await api.post('/doctor/message', { patient_id: selectedPatientId, message: messageText });
+      await api.post('/doctor/message', { patient_id: selectedPatientId, message: textToSend });
       toast.success('Message sent');
+      setChatMessages(prev => [
+        ...prev,
+        {
+          id: Date.now().toString(),
+          sender: 'doctor',
+          message: textToSend,
+          created_at: new Date().toISOString()
+        }
+      ]);
       setMessageText('');
     } catch (err: any) {
       toast.error(err.response?.data?.detail || 'Failed to send message');
@@ -674,13 +694,12 @@ const DoctorDashboard = () => {
           </div>
 
           {/* Stat Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
             <StatCard title={t('doctorDashboard.totalPatients')} value={dashData.total_patients} icon={Users} color="primary" change={+5} />
             <StatCard title={t('doctorDashboard.critical')} value={dashData.critical_count} icon={AlertTriangle} color="red" change={-2} />
             <StatCard title={t('doctorDashboard.highRisk')} value={dashData.high_risk_count} icon={Activity} color="orange" change={+8} />
             <StatCard title={t('doctorDashboard.stable')} value={dashData.stable_count} icon={TrendingUp} color="emerald" change={+12} />
             <StatCard title={t('doctorDashboard.compliance')} value={overallAdherence} icon={Pill} color="cyan" change={+3} suffix="%" />
-            <StatCard title={t('doctorDashboard.ambulancesNearby')} value={volunteerStatus?.within_5km ?? 0} icon={Users} color="purple" change={0} />
           </div>
 
 
@@ -923,27 +942,21 @@ const DoctorDashboard = () => {
                       </div>
                     </div>
 
-                    {/* Send Message to Patient */}
-                    <div className="mt-4 pt-4 border-t border-border/50">
-                      <p className="text-xs font-semibold text-foreground mb-2 flex items-center gap-1.5">
-                        <Send size={13} className="text-primary" /> {t('doctorDashboard.sendMessage')}
-                      </p>
-                      <div className="flex gap-2">
-                        <input
-                          value={messageText}
-                          onChange={e => setMessageText(e.target.value)}
-                          onKeyDown={e => e.key === 'Enter' && handleSendMessage()}
-                          placeholder={t('doctorDashboard.typeMessage')}
-                          className="flex-1 px-3.5 py-2 rounded-xl bg-muted/50 border border-border text-xs text-foreground focus:ring-2 focus:ring-primary/30 outline-none"
-                        />
-                        <button
-                          onClick={handleSendMessage}
-                          disabled={sendingMsg || !messageText.trim()}
-                          className="px-4 py-2 rounded-xl bg-primary text-white text-xs font-medium hover:bg-primary/90 disabled:opacity-50 flex items-center gap-1.5 shrink-0"
-                        >
-                          {sendingMsg ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />} {t('doctorDashboard.send')}
-                        </button>
+                    {/* Send Message to Patient — Compact Trigger */}
+                    <div className="mt-4 pt-4 border-t border-border/50 flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                          <Send size={13} className="text-emerald-400" /> {t('doctorDashboard.sendMessage')}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground">Open WhatsApp-style messaging widget</p>
                       </div>
+                      <button
+                        onClick={() => setShowDoctorChatModal(prev => !prev)}
+                        className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-500/15 to-teal-500/15 border border-emerald-500/30 text-emerald-400 text-xs font-medium hover:bg-emerald-500/25 transition-all shadow-sm hover:scale-[1.02] shrink-0"
+                      >
+                        <MessageSquare size={13} />
+                        <span>Chat with {detail.full_name.split(' ')[0]}</span>
+                      </button>
                     </div>
                   </div>
 
@@ -1219,6 +1232,113 @@ const DoctorDashboard = () => {
           )}
         </AnimatePresence>
         */}
+
+      {/* Compact WhatsApp-Style Floating Chat Widget (Bottom-Right) */}
+      <AnimatePresence>
+        {showDoctorChatModal && detail && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.88, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.88, y: 20 }}
+            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+            className="fixed bottom-5 right-5 z-50 w-[calc(100vw-2.5rem)] sm:w-96 h-[480px] max-h-[85vh] bg-background/95 backdrop-blur-md border border-border/80 rounded-2xl shadow-2xl flex flex-col overflow-hidden"
+          >
+            {/* Widget Header */}
+            <div className="flex items-center justify-between p-3 px-4 border-b border-border bg-gradient-to-r from-emerald-500/15 via-teal-500/10 to-transparent">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500 to-teal-500 flex items-center justify-center text-white font-bold text-xs shrink-0 shadow-sm">
+                  {detail.full_name.charAt(0)}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-semibold text-foreground truncate flex items-center gap-1.5">
+                    {detail.full_name}
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                  </p>
+                  <p className="text-[10px] text-muted-foreground truncate font-mono">ID: {detail.unique_uid} • Online</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowDoctorChatModal(false)}
+                className="p-1.5 rounded-lg hover:bg-muted/80 text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                title="Close Chat"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Widget Messages Area */}
+            <div className="flex-1 overflow-y-auto p-3 space-y-2.5 bg-muted/10">
+              {chatMessages.length > 0 ? (
+                chatMessages.map((msg) => (
+                  <div
+                    key={msg.id}
+                    className={`flex flex-col ${msg.sender === 'doctor' ? 'items-end' : 'items-start'}`}
+                  >
+                    <div
+                      className={`max-w-[85%] px-3.5 py-2 rounded-2xl text-xs leading-relaxed ${
+                        msg.sender === 'doctor'
+                          ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-tr-xs shadow-sm'
+                          : 'bg-muted/80 border border-border/50 text-foreground rounded-tl-xs'
+                      }`}
+                    >
+                      <p className="font-semibold text-[10px] opacity-75 mb-0.5">
+                        {msg.sender === 'doctor' ? 'Doctor (You)' : detail.full_name}
+                      </p>
+                      <p>{msg.message}</p>
+                    </div>
+                    <span className="text-[9px] text-muted-foreground mt-0.5 px-1">
+                      {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
+                ))
+              ) : (
+                <div className="flex flex-col items-center justify-center h-full text-center p-4">
+                  <MessageSquare size={32} className="text-muted-foreground/30 mb-2" />
+                  <p className="text-xs text-muted-foreground font-medium">No messages yet</p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">Start chatting with {detail.full_name}.</p>
+                </div>
+              )}
+              <div ref={doctorChatEndRef} />
+            </div>
+
+            {/* Widget Footer Input */}
+            <div className="p-2.5 border-t border-border bg-background/90">
+              <div className="flex items-center gap-2">
+                <input
+                  value={messageText}
+                  onChange={(e) => setMessageText(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
+                  placeholder={`Type a message...`}
+                  className="flex-1 px-3.5 py-2 rounded-full bg-muted/40 border border-border text-xs text-foreground placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-emerald-500/30"
+                />
+                <button
+                  onClick={handleSendMessage}
+                  disabled={sendingMsg || !messageText.trim()}
+                  className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500 to-teal-500 text-white flex items-center justify-center hover:scale-105 transition-transform shrink-0 disabled:opacity-50 shadow-md shadow-emerald-500/20"
+                >
+                  {sendingMsg ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Bottom-Right Floating Launcher Pill */}
+      {!showDoctorChatModal && detail && (
+        <motion.button
+          initial={{ scale: 0, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          onClick={() => setShowDoctorChatModal(true)}
+          className="fixed bottom-5 right-5 z-40 flex items-center gap-2 px-4 py-3 rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-medium text-xs shadow-xl shadow-emerald-500/30 border border-emerald-400/30"
+        >
+          <MessageSquare size={16} />
+          <span>Chat with {detail.full_name.split(' ')[0]}</span>
+          <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
+        </motion.button>
+      )}
 
       </DashboardLayout>
     </>
