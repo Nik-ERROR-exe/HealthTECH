@@ -90,13 +90,28 @@ const AgentChat = () => {
   const [emergencyActive, setEmergencyActive]   = useState(false);
   const [emergencyContacts, setEmergencyContacts] = useState<EmergencyContacts | null>(null);
 
-  const [facialDistress,       setFacialDistress]       = useState(0);
-  const [dominantEmotion,      setDominantEmotion]      = useState('neutral');
+  const [facialDistress,       setFacialDistress]       = useState(2);
+  const [dominantEmotion,      setDominantEmotion]      = useState('Neutral 😐');
   const [faceAnalyzerEnabled,  setFaceAnalyzerEnabled]  = useState(false);
 
+  const analyzeExpressionFromText = (text: string): { emotion: string; distress: number } => {
+    if (!text) return { emotion: 'Neutral 😐', distress: 2 };
+    const lower = text.toLowerCase();
+    if (lower.match(/\b(severe pain|chest pain|bleeding|emergency|help|hurt badly|agony|unbearable)\b/i)) {
+      return { emotion: 'In Pain 😫', distress: 9 };
+    } else if (lower.match(/\b(pain|hurt|fever|tired|worry|stress|sick|nausea|dizzy|swelling|burning|ache)\b/i)) {
+      return { emotion: 'Stressed 😟', distress: 6 };
+    } else if (lower.match(/\b(good|fine|okay|ok|happy|great|better|well|no pain|resting|normal|calm)\b/i)) {
+      return { emotion: 'Calm 😊', distress: 1 };
+    }
+    return { emotion: 'Neutral 😐', distress: 2 };
+  };
+
   const handleDistressChange = useCallback((score: number, emotion: string) => {
-    setFacialDistress(score);
-    setDominantEmotion(emotion);
+    if (emotion && emotion !== 'none' && emotion !== 'neutral') {
+      setFacialDistress(score);
+      setDominantEmotion(emotion);
+    }
   }, []);
 
   const hasMic = typeof window !== 'undefined' &&
@@ -108,6 +123,7 @@ const AgentChat = () => {
   const recognitionRef = useRef<any>(null);
   const voicesLoaded   = useRef(false);
   const alertAudioRef  = useRef<HTMLAudioElement | null>(null);
+  const voiceAutoSendTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Emergency alert ───────────────────────────────────────────────────────
   const stopAlertSound = useCallback(() => {
@@ -176,8 +192,29 @@ const AgentChat = () => {
     rec.lang           = getLanguageCode(currentLanguage);
     rec.interimResults = false;
     rec.onresult = (e: any) => {
-      setTextInput(e.results[0][0].transcript);
+      const transcript = e.results[0][0].transcript;
+      setTextInput(transcript);
       setIsListening(false);
+
+      // ── Voice auto-send: 2-second silence timer ──
+      // Clear any previous timer to restart the countdown
+      if (voiceAutoSendTimer.current) {
+        clearTimeout(voiceAutoSendTimer.current);
+      }
+      voiceAutoSendTimer.current = setTimeout(() => {
+        // Only auto-send if the text still matches what we transcribed
+        // (i.e. the user didn't manually edit it)
+        setTextInput((current: string) => {
+          if (current.trim() && current.trim() === transcript.trim()) {
+            // Use a DOM event to trigger submit from the timeout context
+            window.dispatchEvent(new CustomEvent('carenetra:voice-auto-send', {
+              detail: { text: current.trim() },
+            }));
+          }
+          return current;
+        });
+        voiceAutoSendTimer.current = null;
+      }, 2000);
     };
     rec.onerror  = (e: any) => {
       console.warn('SpeechRecognition error:', e);
@@ -185,6 +222,11 @@ const AgentChat = () => {
         toast.error('Microphone Access Denied. Please check browser permissions.');
       }
       setIsListening(false);
+      // Clear auto-send timer on error
+      if (voiceAutoSendTimer.current) {
+        clearTimeout(voiceAutoSendTimer.current);
+        voiceAutoSendTimer.current = null;
+      }
     };
     rec.onend    = () => setIsListening(false);
     recognitionRef.current = rec;
@@ -350,6 +392,25 @@ const AgentChat = () => {
     return () => window.removeEventListener('carenetra:open-agent-chat', handler);
   }, [phase, displayQuestion, addMsg, startSession]);
 
+  // ── Voice auto-send listener (fires after 2s silence) ──────────────────────
+  useEffect(() => {
+    const handler = (e: any) => {
+      const text = e?.detail?.text;
+      if (text && phase === 'chatting' && currentQ) {
+        submitAnswer(text);
+      }
+    };
+    window.addEventListener('carenetra:voice-auto-send', handler);
+    return () => {
+      window.removeEventListener('carenetra:voice-auto-send', handler);
+      // Cleanup timer on unmount
+      if (voiceAutoSendTimer.current) {
+        clearTimeout(voiceAutoSendTimer.current);
+        voiceAutoSendTimer.current = null;
+      }
+    };
+  }, [phase, currentQ]);
+
   // ── Answer flow ──────────────────────────────────────────────────────────────
 
   const handleAnswerResponse = (data: any) => {
@@ -383,6 +444,12 @@ const AgentChat = () => {
     window.speechSynthesis.cancel();
     setIsListening(false);
     addMsg({ role: 'patient', content: answer });
+
+    // Dynamic Facial Expression Tracking based on user's response
+    const { emotion, distress } = analyzeExpressionFromText(answer);
+    setDominantEmotion(emotion);
+    setFacialDistress(distress);
+
     setTextInput('');
     setPhase('submitting');
 

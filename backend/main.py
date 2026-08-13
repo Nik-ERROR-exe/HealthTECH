@@ -1,7 +1,7 @@
 from dotenv import load_dotenv
 load_dotenv()
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -17,7 +17,8 @@ from app.models.models import (
     MedicalCourse, Medication, CheckIn,
     RiskScore, WoundAnalysis, Alert,
     DoctorMessage, AgentSession, MonitoringSchedule,
-    RelativeProfile, AmbulanceProfile,
+    RelativeProfile, AmbulanceProfile, VolunteerProfile,
+    PendingCheckIn,
 )
 
 # Routers
@@ -27,13 +28,17 @@ from app.routers.doctor import router as doctor_router
 from app.routers.conversation import router as conversation_router
 from app.routers.emergency import router as emergency_router
 from app.routers.ambulance import router as ambulance_router
+from app.routers.volunteer import router as volunteer_router
 from app.routers.relative import router as relative_router
+from app.routers.checkin import router as checkin_router
+from app.routers.image import router as image_router
+from app.routers.alerts import router as alerts_router
 # from app.routers.agent import router as agent_router
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Ensure database schema has updated columns and enum values
+    # Ensure database schema has updated columns and enum values (ambulance migration)
     try:
         from sqlalchemy import text
         with engine.connect() as conn:
@@ -42,12 +47,22 @@ async def lifespan(app: FastAPI):
             conn.execute(text("ALTER TYPE impactalertstatus ADD VALUE IF NOT EXISTS 'EN_ROUTE';"))
             conn.commit()
     except Exception as exc:
-        logger.warning(f"[DB] Migration check skipped: {exc}")
+        logging.warning(f"[DB] Migration check skipped: {exc}")
+
+    # Ensure database tables exist (non-destructive create_all)
+    try:
+        Base.metadata.create_all(bind=engine)
+    except Exception as exc:
+        logging.warning(f"[DB] Base.metadata.create_all failed: {exc}")
 
     # Start the proactive monitoring scheduler (guarded against uvicorn --reload double-start).
     from app.scheduler import scheduler, start_scheduler
     if not scheduler.running:
         start_scheduler()
+
+    # Start the daily checkin & missed checkin scheduler
+    from app.services.scheduler import start_services_scheduler, stop_services_scheduler
+    start_services_scheduler()
 
     # Warm the RAG knowledge index — never fatal (falls back to no-RAG).
     try:
@@ -56,13 +71,14 @@ async def lifespan(app: FastAPI):
         ensure_collection()
         await index_knowledge_base()
     except Exception as exc:
-        logger.warning(f"[RAG] knowledge index skipped at startup: {exc}")
+        logging.warning(f"[RAG] knowledge index skipped at startup: {exc}")
 
     yield
 
     try:
         from app.scheduler import stop_scheduler
         stop_scheduler()
+        stop_services_scheduler()
     except Exception:
         pass
 
@@ -105,11 +121,14 @@ def create_app() -> FastAPI:
     app.include_router(conversation_router, prefix="/api")
     app.include_router(emergency_router, prefix="/api")
     app.include_router(ambulance_router, prefix="/api")
+    app.include_router(volunteer_router, prefix="/api")
     app.include_router(relative_router, prefix="/api")
+    app.include_router(checkin_router, prefix="/api")
+    app.include_router(image_router, prefix="/api")
+    app.include_router(alerts_router, prefix="/api")
     # app.include_router(agent_router, prefix="/api")
 
     # ── WebSocket for Ambulance Alerts & Real-time Location Bidding ──
-    from fastapi import WebSocket, WebSocketDisconnect
     from app.websocket_manager import manager as ws_manager
 
     @app.websocket("/ws/ambulance/{client_id}")

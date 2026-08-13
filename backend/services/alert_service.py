@@ -36,15 +36,17 @@ async def send_email_alert(
     body:     str,
     wound_image_path: str = None,
     wound_summary: str = None,
+    override_demo: bool = False,
 ) -> bool:
     """
     Sends a transactional email via Brevo (formerly Sendinblue).
     Returns True on success, False on failure.
     """
-    resolved = _resolve_outbound_email(to_email)
-    if resolved != to_email:
-        logger.info(f"[AlertService] DEMO override: email to {to_email} → {resolved}")
-    to_email = resolved
+    if not override_demo:
+        resolved = _resolve_outbound_email(to_email)
+        if resolved != to_email:
+            logger.info(f"[AlertService] DEMO override: email to {to_email} → {resolved}")
+        to_email = resolved
 
     try:
         configuration              = sib_api_v3_sdk.Configuration()

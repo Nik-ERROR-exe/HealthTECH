@@ -1,6 +1,6 @@
 """
 CARENETRA — Complete Database Schema
-All 12 tables defined here using SQLAlchemy 2.0 declarative style.
+All tables defined here using SQLAlchemy 2.0 declarative style.
 """
 import uuid
 import random
@@ -25,6 +25,7 @@ from app.database import Base
 class UserRole(str, PyEnum):
     PATIENT   = "PATIENT"
     DOCTOR    = "DOCTOR"
+    VOLUNTEER = "VOLUNTEER"
     AMBULANCE = "AMBULANCE"
     RELATIVE  = "RELATIVE"
 
@@ -79,9 +80,9 @@ class WoundSeverity(str, PyEnum):
 
 
 class ImpactAlertStatus(str, PyEnum):
-    ACTIVE     = "ACTIVE"      # alert fired, no ambulance yet
-    RESPONDING = "RESPONDING"  # an ambulance confirmed they're going
-    EN_ROUTE   = "EN_ROUTE"    # ambulance marked as on the way
+    ACTIVE     = "ACTIVE"      # alert fired, no responder yet
+    RESPONDING = "RESPONDING"  # a responder confirmed they're going
+    EN_ROUTE   = "EN_ROUTE"    # responder marked as on the way
     RESOLVED   = "RESOLVED"    # manually resolved or patient confirmed okay
 
 
@@ -139,6 +140,9 @@ class User(Base):
     )
     doctor_profile: Mapped["DoctorProfile"] = relationship(
         "DoctorProfile", back_populates="user", uselist=False, cascade="all, delete-orphan"
+    )
+    volunteer_profile: Mapped["VolunteerProfile"] = relationship(
+        "VolunteerProfile", back_populates="user", uselist=False, cascade="all, delete-orphan"
     )
     ambulance_profile: Mapped["AmbulanceProfile"] = relationship(
         "AmbulanceProfile", back_populates="user", uselist=False, cascade="all, delete-orphan"
@@ -205,6 +209,9 @@ class PatientProfile(Base):
     relative_profiles: Mapped[list["RelativeProfile"]] = relationship(
         "RelativeProfile", back_populates="patient"
     )
+    pending_check_ins: Mapped[list["PendingCheckIn"]] = relationship(
+        "PendingCheckIn", back_populates="patient", cascade="all, delete-orphan"
+    )
 
 
 # ─────────────────────────────────────────────
@@ -246,7 +253,39 @@ class DoctorProfile(Base):
 
 
 # ─────────────────────────────────────────────
-# TABLE 3.5: ambulances
+# TABLE 3.5: volunteer_profiles
+# Extended volunteer info beyond auth.
+# ─────────────────────────────────────────────
+
+class VolunteerProfile(Base):
+    __tablename__ = "volunteer_profiles"
+
+    id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    user_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("users.id", ondelete="CASCADE"), unique=True
+    )
+    phone: Mapped[str] = mapped_column(String(30), nullable=True)
+    area_description: Mapped[str] = mapped_column(String(255), nullable=True)  # "Andheri West, Mumbai"
+    is_available: Mapped[bool] = mapped_column(Boolean, default=True)
+    current_latitude:  Mapped[float] = mapped_column(Float, nullable=True)
+    current_longitude: Mapped[float] = mapped_column(Float, nullable=True)
+    last_active_at:    Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+    # Relationships
+    user: Mapped["User"] = relationship("User", back_populates="volunteer_profile")
+    responses: Mapped[list["ImpactAlert"]] = relationship(
+        "ImpactAlert", back_populates="responder_volunteer", foreign_keys="ImpactAlert.responder_volunteer_id"
+    )
+
+
+# ─────────────────────────────────────────────
+# TABLE 3.6: ambulances
 # Extended ambulance info beyond auth.
 # ─────────────────────────────────────────────
 
@@ -277,7 +316,7 @@ class AmbulanceProfile(Base):
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="ambulance_profile")
     responses: Mapped[list["ImpactAlert"]] = relationship(
-        "ImpactAlert", back_populates="responder", foreign_keys="ImpactAlert.responder_ambulance_id"
+        "ImpactAlert", back_populates="responder_ambulance", foreign_keys="ImpactAlert.responder_ambulance_id"
     )
 
 
@@ -311,7 +350,7 @@ class RelativeProfile(Base):
 
 # ─────────────────────────────────────────────
 # TABLE 3.8: impact_alerts
-# Crash/impact alerts reported by patients, responded to by ambulances.
+# Crash/impact alerts reported by patients, responded to by volunteers or ambulances.
 # ─────────────────────────────────────────────
 
 class ImpactAlert(Base):
@@ -336,11 +375,15 @@ class ImpactAlert(Base):
     location_label: Mapped[str]   = mapped_column(String(500), nullable=True)  # "12.9716° N, 77.5946° E"
     maps_url:       Mapped[str]   = mapped_column(String(500), nullable=True)  # Google Maps link
 
-    # Status flow: ACTIVE → RESPONDING → RESOLVED
+    # Status flow: ACTIVE → RESPONDING → EN_ROUTE → RESOLVED
     status: Mapped[ImpactAlertStatus] = mapped_column(
         Enum(ImpactAlertStatus), default=ImpactAlertStatus.ACTIVE
     )
 
+    # Volunteer who responded
+    responder_volunteer_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("volunteer_profiles.id", ondelete="SET NULL"), nullable=True
+    )
     # Ambulance who responded
     responder_ambulance_id: Mapped[str] = mapped_column(
         UUID(as_uuid=False), ForeignKey("ambulances.id", ondelete="SET NULL"), nullable=True
@@ -355,13 +398,18 @@ class ImpactAlert(Base):
     resolved_at:     Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Notification tracking
+    volunteers_notified: Mapped[int]  = mapped_column(Integer, default=0)
     ambulances_notified: Mapped[int]  = mapped_column(Integer, default=0)
     sms_sent:            Mapped[bool] = mapped_column(Boolean, default=False)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
-    responder: Mapped["AmbulanceProfile"] = relationship(
+    responder_volunteer: Mapped["VolunteerProfile"] = relationship(
+        "VolunteerProfile", back_populates="responses",
+        foreign_keys=[responder_volunteer_id]
+    )
+    responder_ambulance: Mapped["AmbulanceProfile"] = relationship(
         "AmbulanceProfile", back_populates="responses",
         foreign_keys=[responder_ambulance_id]
     )
@@ -390,7 +438,7 @@ class MedicalCourse(Base):
     start_date: Mapped[str] = mapped_column(String(20), nullable=False)
     end_date: Mapped[str] = mapped_column(String(20), nullable=False)
     notes_for_patient: Mapped[str] = mapped_column(Text, nullable=True)
-    patient_context: Mapped[str] = mapped_column(Text, nullable=True)  # <-- NEW FIELD
+    patient_context: Mapped[str] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
@@ -403,6 +451,7 @@ class MedicalCourse(Base):
         "Medication", back_populates="course", cascade="all, delete-orphan"
     )
     check_ins: Mapped[list["CheckIn"]] = relationship("CheckIn", back_populates="course")
+
 
 # ─────────────────────────────────────────────
 # TABLE 5: medications
@@ -595,6 +644,7 @@ class Alert(Base):
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     resolved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
+    notified_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True, default=None)
 
     patient: Mapped["PatientProfile"] = relationship("PatientProfile", back_populates="alerts")
     doctor: Mapped["DoctorProfile"] = relationship("DoctorProfile", back_populates="alerts")
@@ -704,3 +754,28 @@ class MonitoringSchedule(Base):
     patient: Mapped["PatientProfile"] = relationship(
         "PatientProfile", back_populates="monitoring_schedule"
     )
+
+
+# ─────────────────────────────────────────────
+# TABLE 13: pending_check_ins
+# Tracks scheduled check-ins waiting to be triggered or triggered.
+# ─────────────────────────────────────────────
+
+class PendingCheckIn(Base):
+    __tablename__ = "pending_check_ins"
+
+    id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    patient_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("patient_profiles.id", ondelete="CASCADE"), nullable=False
+    )
+    scheduled_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    check_in_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("check_ins.id", ondelete="SET NULL"), nullable=True
+    )
+    triggered: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+    patient: Mapped["PatientProfile"] = relationship("PatientProfile", back_populates="pending_check_ins")
+    check_in: Mapped["CheckIn"] = relationship("CheckIn")

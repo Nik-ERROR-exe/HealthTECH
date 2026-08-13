@@ -16,7 +16,7 @@ import DashboardLayout from '@/components/DashboardLayout';
 import EmergencyBanner from '@/components/EmergencyBanner';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
-import api, { doctorApi } from '@/lib/api';
+import api, { doctorApi, triggerCheckin, getPendingAlerts, dispatchAmbulance, acknowledgeAlert } from '@/lib/api';
 import Lenis from '@studio-freight/lenis';
 import { getUser } from '@/lib/auth';
 import {
@@ -217,7 +217,92 @@ const DoctorDashboard = () => {
   const [practiceStats, setPracticeStats] = useState<PracticeStats | null>(null);
   const [volunteerStatus, setVolunteerStatus] = useState<{ online: number; within_5km: number } | null>(null);
 
-  useEffect(() => { fetchDashboard(); fetchPracticeStats(); fetchAmbulanceStatus(); }, []);
+  // ── Pending Emergency Alerts State & Audio Alarm ──
+  const [pendingEmergencyAlerts, setPendingEmergencyAlerts] = useState<any[]>([]);
+  const [showAlertModal, setShowAlertModal] = useState(false);
+  const [currentEmergencyAlert, setCurrentEmergencyAlert] = useState<any | null>(null);
+  const [dispatchingAmbulance, setDispatchingAmbulance] = useState(false);
+  const alarmAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    alarmAudioRef.current = new Audio('/alert.mp3');
+    alarmAudioRef.current.loop = true;
+
+    const checkPendingAlerts = async () => {
+      try {
+        const data = await getPendingAlerts();
+        if (Array.isArray(data) && data.length > 0) {
+          setPendingEmergencyAlerts(data);
+          if (!showAlertModal) {
+            const latest = data[0];
+            setCurrentEmergencyAlert(latest);
+            setShowAlertModal(true);
+            if (alarmAudioRef.current) {
+              alarmAudioRef.current.play().catch(e => console.warn('Audio play blocked', e));
+            }
+          }
+        }
+      } catch {
+        // ignore polling errors
+      }
+    };
+
+    checkPendingAlerts();
+    const interval = setInterval(checkPendingAlerts, 5000);
+    return () => {
+      clearInterval(interval);
+      if (alarmAudioRef.current) {
+        alarmAudioRef.current.pause();
+        alarmAudioRef.current.currentTime = 0;
+      }
+    };
+  }, [showAlertModal]);
+
+  const handleDispatchAmbulance = async () => {
+    if (!currentEmergencyAlert) return;
+    setDispatchingAmbulance(true);
+    try {
+      await dispatchAmbulance(currentEmergencyAlert.alert_id);
+      toast.success('🚑 Ambulance dispatched successfully!');
+      if (alarmAudioRef.current) {
+        alarmAudioRef.current.pause();
+        alarmAudioRef.current.currentTime = 0;
+      }
+      setShowAlertModal(false);
+      setCurrentEmergencyAlert(null);
+      fetchDashboard();
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Failed to dispatch ambulance');
+    } finally {
+      setDispatchingAmbulance(false);
+    }
+  };
+
+  const handleCallPatient = () => {
+    if (currentEmergencyAlert?.patient_phone && currentEmergencyAlert.patient_phone !== 'N/A') {
+      window.location.href = `tel:${currentEmergencyAlert.patient_phone}`;
+    } else {
+      toast.info(`Calling patient ${currentEmergencyAlert?.patient_name || ''}... (demo)`);
+    }
+  };
+
+  const handleAcknowledgeAlert = async () => {
+    if (!currentEmergencyAlert) return;
+    try {
+      await acknowledgeAlert(currentEmergencyAlert.alert_id);
+      toast.info('Alert acknowledged');
+    } catch {
+      // ignore
+    }
+    if (alarmAudioRef.current) {
+      alarmAudioRef.current.pause();
+      alarmAudioRef.current.currentTime = 0;
+    }
+    setShowAlertModal(false);
+    setCurrentEmergencyAlert(null);
+  };
+
+  useEffect(() => { fetchDashboard(); fetchPracticeStats(); fetchAmbulanceStatus(); fetchVolunteerStatus(); }, []);
 
   const fetchDashboard = async () => {
     const currentUser = getUser();
@@ -453,6 +538,19 @@ const DoctorDashboard = () => {
     }
   };
 
+  const handleDemoTriggerCheckin = async (patientId: string, delaySeconds: number = 30) => {
+    setSchedulingId(patientId);
+    try {
+      await triggerCheckin(patientId, delaySeconds);
+      toast.success(`Demo check-in scheduled to trigger in ${delaySeconds} seconds!`);
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Failed to trigger check-in demo');
+    } finally {
+      setSchedulingId(null);
+    }
+  };
+
+
   const scheduleInMinutes = (patientId: string, name: string, minutes: number, label: string) =>
     handleScheduleCheckin(patientId, new Date(Date.now() + minutes * 60_000).toISOString(), label);
 
@@ -581,7 +679,7 @@ const DoctorDashboard = () => {
           </div>
 
           {/* Stat Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4">
             <StatCard title={t('doctorDashboard.totalPatients')} value={dashData.total_patients} icon={Users} color="primary" change={+5} />
             <StatCard title={t('doctorDashboard.critical')} value={dashData.critical_count} icon={AlertTriangle} color="red" change={-2} />
             <StatCard title={t('doctorDashboard.highRisk')} value={dashData.high_risk_count} icon={Activity} color="orange" change={+8} />
@@ -590,23 +688,7 @@ const DoctorDashboard = () => {
             <StatCard title={t('doctorDashboard.ambulancesNearby')} value={volunteerStatus?.within_5km ?? 0} icon={Users} color="purple" change={0} />
           </div>
 
-          {/* AI Insights Bar */}
-          <motion.div className="glass-card rounded-3xl p-5 border border-primary/20 bg-gradient-to-r from-primary/5 to-secondary/5">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-purple-500/20 flex items-center justify-center"><Brain size={20} className="text-purple-400" /></div>
-                <div>
-                  <p className="text-sm font-semibold text-foreground">{t('doctorDashboard.aiPopulationInsights')}</p>
-                  <p className="text-xs text-muted-foreground">{t('doctorDashboard.aiInsightsDesc')}</p>
-                </div>
-              </div>
-              <div className="flex gap-4 text-xs">
-                <div><span className="text-muted-foreground">{t('doctorDashboard.avgRiskScore')}:</span> <span className="font-bold text-foreground">{practiceStats?.avg_risk_score?.toFixed(1) || '—'}</span></div>
-                <div><span className="text-muted-foreground">{t('doctorDashboard.projectedEscalations')}:</span> <span className="font-bold text-orange-400">{Math.round((dashData.high_risk_count + dashData.critical_count) * 0.3)}</span></div>
-                <div><span className="text-muted-foreground">{t('doctorDashboard.recommendation')}:</span> <span className="text-primary">{t('doctorDashboard.increaseFollowUp')}</span></div>
-              </div>
-            </div>
-          </motion.div>
+
 
           {/* Main Grid */}
           <div className="grid lg:grid-cols-5 gap-6">
@@ -630,7 +712,7 @@ const DoctorDashboard = () => {
                       {addPanelStep === 'search' && (
                         <div className="space-y-2">
                           <div className="flex gap-2">
-                            <input value={uidInput} onChange={e => setUidInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && searchByUid()} placeholder="CNT-XXXXX" className="flex-1 px-3 py-2 rounded-lg bg-background border border-border text-foreground text-xs placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-ring/30 font-mono" />
+                            <input value={uidInput} onChange={e => setUidInput(e.target.value.toUpperCase())} onKeyDown={e => e.key === 'Enter' && searchByUid()} placeholder="CNT-XXXXX" className="flex-1 px-3 py-2 rounded-lg bg-background border border-border text-foreground text-xs placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-ring/30 font-mono uppercase" />
                             <button onClick={searchByUid} disabled={searchingPatient || !uidInput.trim()} className="px-3 py-2 rounded-lg bg-primary text-white text-xs font-medium disabled:opacity-50 flex items-center gap-1">
                               {searchingPatient ? <Loader2 size={12} className="animate-spin" /> : <Search size={12} />} {t('doctorDashboard.find')}
                             </button>
@@ -819,6 +901,14 @@ const DoctorDashboard = () => {
                             <Zap size={12} />
                             {t('doctorDashboard.triggerNow')}
                           </button>
+                          <button
+                            onClick={() => handleDemoTriggerCheckin(detail.patient_id, 30)}
+                            disabled={schedulingId === detail.patient_id}
+                            className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 hover:bg-cyan-500/20 disabled:opacity-50 transition-colors"
+                          >
+                            {schedulingId === detail.patient_id ? <Loader2 size={12} className="animate-spin" /> : <Bell size={12} />}
+                            Demo Trigger (30s)
+                          </button>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
@@ -835,6 +925,50 @@ const DoctorDashboard = () => {
                         >
                           {t('doctorDashboard.schedule')}
                         </button>
+                      </div>
+                    </div>
+
+                    {/* Send Message to Patient */}
+                    <div className="mt-4 pt-4 border-t border-border/50">
+                      <p className="text-xs font-semibold text-foreground mb-2 flex items-center gap-1.5">
+                        <Send size={13} className="text-primary" /> {t('doctorDashboard.sendMessage')}
+                      </p>
+                      <div className="flex gap-2">
+                        <input
+                          value={messageText}
+                          onChange={e => setMessageText(e.target.value)}
+                          onKeyDown={e => e.key === 'Enter' && handleSendMessage()}
+                          placeholder={t('doctorDashboard.typeMessage')}
+                          className="flex-1 px-3.5 py-2 rounded-xl bg-muted/50 border border-border text-xs text-foreground focus:ring-2 focus:ring-primary/30 outline-none"
+                        />
+                        <button
+                          onClick={handleSendMessage}
+                          disabled={sendingMsg || !messageText.trim()}
+                          className="px-4 py-2 rounded-xl bg-primary text-white text-xs font-medium hover:bg-primary/90 disabled:opacity-50 flex items-center gap-1.5 shrink-0"
+                        >
+                          {sendingMsg ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />} {t('doctorDashboard.send')}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* AI Clinical Insight - Positioned directly above Risk Score Trend */}
+                  <div className="glass-card rounded-3xl p-5 bg-gradient-to-r from-purple-500/5 to-pink-500/5 border border-purple-500/20">
+                    <div className="flex items-start gap-3">
+                      <Brain size={18} className="text-purple-400 mt-0.5" />
+                      <div>
+                        <p className="text-sm font-semibold text-foreground">{t('doctorDashboard.aiClinicalInsight')}</p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {detail.latest_risk_score?.total_score && detail.latest_risk_score.total_score > 70 
+                            ? t('doctorDashboard.insightCritical')
+                            : detail.latest_risk_score?.total_score && detail.latest_risk_score.total_score > 40
+                            ? t('doctorDashboard.insightModerate')
+                            : t('doctorDashboard.insightStable')}
+                        </p>
+                        <div className="flex gap-4 mt-2 text-xs">
+                          <span className="text-muted-foreground">{t('doctorDashboard.predictedEscalation')}: {detail.latest_risk_score?.total_score && detail.latest_risk_score.total_score > 60 ? '24h' : '5 days'}</span>
+                          <span className="text-muted-foreground">{t('doctorDashboard.recommendedAction')}: {detail.latest_risk_score?.total_score && detail.latest_risk_score.total_score > 50 ? t('doctorDashboard.contactNow') : t('doctorDashboard.routineCheckin')}</span>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -856,26 +990,6 @@ const DoctorDashboard = () => {
                       </div>
                     </div>
                   )}
-
-                  <div className="glass-card rounded-3xl p-5 bg-gradient-to-r from-purple-500/5 to-pink-500/5 border border-purple-500/20">
-                    <div className="flex items-start gap-3">
-                      <Brain size={18} className="text-purple-400 mt-0.5" />
-                      <div>
-                        <p className="text-sm font-semibold text-foreground">{t('doctorDashboard.aiClinicalInsight')}</p>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          {detail.latest_risk_score?.total_score && detail.latest_risk_score.total_score > 70 
-                            ? t('doctorDashboard.insightCritical')
-                            : detail.latest_risk_score?.total_score && detail.latest_risk_score.total_score > 40
-                            ? t('doctorDashboard.insightModerate')
-                            : t('doctorDashboard.insightStable')}
-                        </p>
-                        <div className="flex gap-4 mt-2 text-xs">
-                          <span className="text-muted-foreground">{t('doctorDashboard.predictedEscalation')}: {detail.latest_risk_score?.total_score && detail.latest_risk_score.total_score > 60 ? '24h' : '5 days'}</span>
-                          <span className="text-muted-foreground">{t('doctorDashboard.recommendedAction')}: {detail.latest_risk_score?.total_score && detail.latest_risk_score.total_score > 50 ? t('doctorDashboard.contactNow') : t('doctorDashboard.routineCheckin')}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
 
                   {detail.recent_check_ins?.[0]?.agent_report && (
                     <div className="glass-card rounded-3xl p-5 border-l-4 border-l-primary">
@@ -1017,13 +1131,7 @@ const DoctorDashboard = () => {
                     </div>
                   )}
 
-                  <div className="glass-card rounded-3xl p-5">
-                    <h3 className="text-sm font-semibold text-foreground mb-3">{t('doctorDashboard.sendMessage')}</h3>
-                    <div className="flex gap-3">
-                      <input value={messageText} onChange={e=>setMessageText(e.target.value)} placeholder={t('doctorDashboard.typeMessage')} className="flex-1 px-4 py-2.5 rounded-xl bg-muted/50 border border-border text-sm" />
-                      <button onClick={handleSendMessage} disabled={sendingMsg} className="px-5 py-2.5 rounded-xl bg-primary text-white text-sm font-medium hover:bg-primary/90 disabled:opacity-50 flex items-center gap-2"><Send size={14} /> {t('doctorDashboard.send')}</button>
-                    </div>
-                  </div>
+
                 </>
               ) : (
                 <div className="glass-card rounded-3xl p-12 text-center">
@@ -1034,6 +1142,87 @@ const DoctorDashboard = () => {
             </div>
           </div>
         </motion.div>
+
+        {/* ── Real-time Emergency Alert Popup Modal ── */}
+        <AnimatePresence>
+          {showAlertModal && currentEmergencyAlert && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md p-4"
+            >
+              <motion.div
+                initial={{ scale: 0.9, opacity: 0, y: 20 }}
+                animate={{ scale: 1, opacity: 1, y: 0 }}
+                exit={{ scale: 0.9, opacity: 0, y: 20 }}
+                className="bg-card border-2 border-red-500/60 text-card-foreground w-full max-w-lg rounded-3xl p-6 shadow-[0_0_50px_rgba(239,68,68,0.4)] relative overflow-hidden space-y-5"
+              >
+                <div className="absolute top-0 right-0 left-0 h-2 bg-gradient-to-r from-red-600 via-orange-500 to-red-600 animate-pulse" />
+
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-10 h-10 rounded-full bg-red-500/20 text-red-500 border border-red-500/40 flex items-center justify-center animate-bounce">
+                      <AlertTriangle size={22} />
+                    </div>
+                    <div>
+                      <h2 className="text-lg font-bold text-red-500 flex items-center gap-2">
+                        🚨 EMERGENCY ALERT
+                      </h2>
+                      <p className="text-xs text-muted-foreground">Action required immediately</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={handleAcknowledgeAlert}
+                    className="p-2 text-muted-foreground hover:text-foreground rounded-lg hover:bg-muted transition-colors"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+
+                <div className="bg-muted/40 rounded-2xl p-4 border border-border/50 space-y-2 text-sm">
+                  <div className="flex justify-between items-center">
+                    <span className="text-muted-foreground">Patient:</span>
+                    <span className="font-semibold text-foreground text-base">{currentEmergencyAlert.patient_name}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-muted-foreground">Risk Tier:</span>
+                    <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-red-500/20 text-red-400 border border-red-500/40">
+                      {currentEmergencyAlert.risk_tier}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-muted-foreground">Phone:</span>
+                    <span className="font-mono text-foreground">{currentEmergencyAlert.patient_phone}</span>
+                  </div>
+                  <div className="pt-2 border-t border-border/50">
+                    <p className="text-xs font-medium text-muted-foreground mb-1">Alert Summary / Reason:</p>
+                    <p className="text-sm font-medium text-foreground bg-background/50 p-2.5 rounded-xl border border-border/30">
+                      {currentEmergencyAlert.summary}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-3 pt-2">
+                  <button
+                    onClick={handleDispatchAmbulance}
+                    disabled={dispatchingAmbulance}
+                    className="flex-1 flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-red-600 hover:bg-red-700 text-white font-semibold text-sm shadow-lg shadow-red-600/30 transition-all disabled:opacity-50"
+                  >
+                    {dispatchingAmbulance ? <Loader2 size={16} className="animate-spin" /> : '🚑 Dispatch Ambulance'}
+                  </button>
+                  <button
+                    onClick={handleCallPatient}
+                    className="flex-1 flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm shadow-lg shadow-blue-600/30 transition-all"
+                  >
+                    📞 Call Patient
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
       </DashboardLayout>
     </>
   );
