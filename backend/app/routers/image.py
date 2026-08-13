@@ -77,7 +77,7 @@ async def upload_image(
                 "raw_response": "Fallback default",
             }
 
-    is_wound = result.get("is_wound", True)
+    is_wound = bool(result.get("is_wound", False))
     redness_detected = result.get("redness_detected", False) if is_wound else False
     swelling_detected = result.get("swelling_detected", False) if is_wound else False
     texture_change_detected = result.get("texture_change_detected", False) if is_wound else False
@@ -105,6 +105,7 @@ async def upload_image(
             patient_id=current_patient.id,
             check_in_id=None,
             image_url=image_url,
+            is_wound=is_wound,
             severity=severity_enum,
             raw_llm_response=result.get("raw_response"),
             redness_detected=redness_detected,
@@ -124,6 +125,7 @@ async def upload_image(
 
     return {
         "analysis_id": str(analysis.id),
+        "is_wound": is_wound,
         "summary": analysis.analysis_summary,
         "severity": severity_enum.value if hasattr(severity_enum, "value") else str(severity_enum),
         "redness_detected": analysis.redness_detected,

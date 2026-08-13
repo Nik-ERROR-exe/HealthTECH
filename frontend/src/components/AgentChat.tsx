@@ -123,51 +123,15 @@ const AgentChat = () => {
   const recognitionRef = useRef<any>(null);
   const voicesLoaded   = useRef(false);
   const alertAudioRef  = useRef<HTMLAudioElement | null>(null);
-  const voiceAutoSendTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const accumulatedTranscriptRef = useRef<string>('');
+  const isAutoSubmittingRef = useRef<boolean>(false);
 
-  // ── Emergency alert ───────────────────────────────────────────────────────
-  const stopAlertSound = useCallback(() => {
-    if (alertAudioRef.current) {
-      alertAudioRef.current.pause();
-      alertAudioRef.current.currentTime = 0;
+  const clearVoiceAutoSendTimer = useCallback(() => {
+    if (voiceAutoSendTimer.current) {
+      clearTimeout(voiceAutoSendTimer.current);
+      voiceAutoSendTimer.current = null;
     }
   }, []);
-
-  const playAlertSound = useCallback(() => {
-    try {
-      if (!alertAudioRef.current) alertAudioRef.current = new Audio('/alert.mp3');
-      alertAudioRef.current.loop = true;
-      alertAudioRef.current.play().catch(() => { /* autoplay may be blocked — fine */ });
-    } catch { /* ignore */ }
-  }, []);
-
-  const triggerEmergency = useCallback((contacts?: EmergencyContacts | null) => {
-    window.speechSynthesis.cancel();
-    recognitionRef.current?.stop();
-    setIsListening(false);
-    if (contacts) setEmergencyContacts(contacts);
-    setEmergencyActive(true);
-    playAlertSound();
-  }, [playAlertSound]);
-
-  const dismissEmergency = useCallback(() => {
-    stopAlertSound();
-    setEmergencyActive(false);
-  }, [stopAlertSound]);
-
-  const isCheckinActive = faceAnalyzerEnabled && phase !== 'idle' && phase !== 'done';
-
-  // ── TTS & Question display helpers (declared before useEffect usage) ────
-  const getLanguageCode = (lang: string): string => {
-    const map: Record<string, string> = {
-      en: 'en-US',
-      hi: 'hi-IN',
-      mr: 'mr-IN',
-    };
-    return map[lang] || 'en-US';
-  };
-
-  // ── STT (declared before speak so speak can reference startListening) ──────
 
   const startListening = useCallback(async () => {
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -188,47 +152,74 @@ const AgentChat = () => {
     }
 
     window.speechSynthesis.cancel();
-    const rec          = new SR();
-    rec.lang           = getLanguageCode(currentLanguage);
-    rec.interimResults = false;
+    clearVoiceAutoSendTimer();
+    isAutoSubmittingRef.current = false;
+    accumulatedTranscriptRef.current = textInput;
+
+    const rec = new SR();
+    rec.lang = getLanguageCode(currentLanguage);
+    rec.interimResults = true;
+    rec.continuous = true;
+
     rec.onresult = (e: any) => {
-      const transcript = e.results[0][0].transcript;
-      setTextInput(transcript);
-      setIsListening(false);
+      let finalTranscript = '';
+      let interimTranscript = '';
+
+      for (let i = e.resultIndex; i < e.results.length; ++i) {
+        const item = e.results[i];
+        if (item.isFinal) {
+          finalTranscript += item[0].transcript;
+        } else {
+          interimTranscript += item[0].transcript;
+        }
+      }
+
+      let currentFull = accumulatedTranscriptRef.current;
+      if (finalTranscript) {
+        currentFull = (currentFull + ' ' + finalTranscript).trim();
+        accumulatedTranscriptRef.current = currentFull;
+      }
+
+      const displayText = (currentFull + ' ' + interimTranscript).trim();
+      setTextInput(displayText);
 
       // ── Voice auto-send: 2-second silence timer ──
-      // Clear any previous timer to restart the countdown
-      if (voiceAutoSendTimer.current) {
-        clearTimeout(voiceAutoSendTimer.current);
-      }
-      voiceAutoSendTimer.current = setTimeout(() => {
-        // Only auto-send if the text still matches what we transcribed
-        // (i.e. the user didn't manually edit it)
-        setTextInput((current: string) => {
-          if (current.trim() && current.trim() === transcript.trim()) {
-            // Use a DOM event to trigger submit from the timeout context
+      // Reset timer whenever new speech/interim speech is detected
+      clearVoiceAutoSendTimer();
+      if (displayText.trim()) {
+        voiceAutoSendTimer.current = setTimeout(() => {
+          if (isAutoSubmittingRef.current) return;
+          isAutoSubmittingRef.current = true;
+          try {
+            rec.stop();
+          } catch { /* ignore */ }
+          setIsListening(false);
+
+          const textToSubmit = displayText.trim();
+          if (textToSubmit) {
             window.dispatchEvent(new CustomEvent('carenetra:voice-auto-send', {
-              detail: { text: current.trim() },
+              detail: { text: textToSubmit },
             }));
           }
-          return current;
-        });
-        voiceAutoSendTimer.current = null;
-      }, 2000);
+          voiceAutoSendTimer.current = null;
+        }, 2000);
+      }
     };
-    rec.onerror  = (e: any) => {
+
+    rec.onerror = (e: any) => {
       console.warn('SpeechRecognition error:', e);
       if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
         toast.error('Microphone Access Denied. Please check browser permissions.');
       }
+      clearVoiceAutoSendTimer();
       setIsListening(false);
-      // Clear auto-send timer on error
-      if (voiceAutoSendTimer.current) {
-        clearTimeout(voiceAutoSendTimer.current);
-        voiceAutoSendTimer.current = null;
-      }
+      isAutoSubmittingRef.current = false;
     };
-    rec.onend    = () => setIsListening(false);
+
+    rec.onend = () => {
+      setIsListening(false);
+    };
+
     recognitionRef.current = rec;
     
     try {
@@ -238,12 +229,13 @@ const AgentChat = () => {
       console.warn('Failed to start speech recognition:', e);
       setIsListening(false);
     }
-  }, [currentLanguage]);
+  }, [currentLanguage, textInput, clearVoiceAutoSendTimer]);
 
   const stopListening = useCallback(() => {
+    clearVoiceAutoSendTimer();
     recognitionRef.current?.stop();
     setIsListening(false);
-  }, []);
+  }, [clearVoiceAutoSendTimer]);
 
   const speak = useCallback((text: string, autoListenOnEnd = false) => {
     if (!hasTTS || !ttsEnabled) return;
@@ -440,6 +432,9 @@ const AgentChat = () => {
   const submitAnswer = async (answer: string) => {
     if (!sessionId || !currentQ || phase === 'submitting') return;
 
+    clearVoiceAutoSendTimer();
+    isAutoSubmittingRef.current = true;
+    accumulatedTranscriptRef.current = '';
     recognitionRef.current?.stop();
     window.speechSynthesis.cancel();
     setIsListening(false);
@@ -533,6 +528,9 @@ const AgentChat = () => {
   // ── STT helpers (startListening / stopListening moved above speak) ──────────
 
   const handleClose = () => {
+    clearVoiceAutoSendTimer();
+    isAutoSubmittingRef.current = false;
+    accumulatedTranscriptRef.current = '';
     window.speechSynthesis.cancel();
     recognitionRef.current?.stop();
     stopAlertSound();
@@ -542,6 +540,9 @@ const AgentChat = () => {
   };
 
   const resetChat = () => {
+    clearVoiceAutoSendTimer();
+    isAutoSubmittingRef.current = false;
+    accumulatedTranscriptRef.current = '';
     window.speechSynthesis.cancel();
     recognitionRef.current?.stop();
     stopAlertSound();
@@ -783,7 +784,11 @@ const AgentChat = () => {
                       )}
                       <input
                         value={textInput}
-                        onChange={e => setTextInput(e.target.value)}
+                        onChange={e => {
+                          setTextInput(e.target.value);
+                          accumulatedTranscriptRef.current = e.target.value;
+                          clearVoiceAutoSendTimer();
+                        }}
                         onKeyDown={e => { if (e.key === 'Enter' && textInput.trim()) submitAnswer(textInput.trim()); }}
                         placeholder={isListening ? 'Listening…' : 'Type or speak your answer…'}
                         autoFocus
@@ -916,7 +921,11 @@ const AgentChat = () => {
                       )}
                       <input
                         value={textInput}
-                        onChange={e => setTextInput(e.target.value)}
+                        onChange={e => {
+                          setTextInput(e.target.value);
+                          accumulatedTranscriptRef.current = e.target.value;
+                          clearVoiceAutoSendTimer();
+                        }}
                         onKeyDown={e => { if (e.key === 'Enter' && textInput.trim()) submitAnswer(textInput.trim()); }}
                         placeholder={isListening ? 'Listening…' : 'Type or speak your answer…'}
                         autoFocus

@@ -317,8 +317,8 @@ const DoctorDashboard = () => {
   useEffect(() => { fetchDashboard(); fetchPracticeStats(); }, []);
 
   const fetchDashboard = async () => {
-    const currentUser = getUser();
-    if (isDr26DoctorEmail(currentUser?.email)) {
+    const isDemoMode = localStorage.getItem('carenetra_demo_mode') === 'true';
+    if (isDemoMode) {
       const demoData = {
         total_patients: 1,
         critical_count: 0,
@@ -339,7 +339,7 @@ const DoctorDashboard = () => {
     try {
       const currentLang = i18n.resolvedLanguage || i18n.language || 'en';
       const langCode = currentLang.split('-')[0];
-      const res = await api.get('/doctor/dashboard', { params: { language: langCode } });
+      const res = await doctorApi.dashboard(langCode);
       setDashData(res.data);
       setAlerts(res.data.active_alerts || []);
       if (res.data.patients?.length > 0 && !selectedPatientId) {
@@ -354,8 +354,8 @@ const DoctorDashboard = () => {
   };
 
   const fetchPatientMessages = async (patientId: string) => {
-    const currentUser = getUser();
-    if (isDr26DoctorEmail(currentUser?.email) || patientId === 'p-abhay-26' || patientId === ABHAY_UID) {
+    const isDemoMode = localStorage.getItem('carenetra_demo_mode') === 'true';
+    if (isDemoMode && (patientId === 'p-abhay-26' || patientId === ABHAY_UID)) {
       setPatientMessages(abhayMessages as any);
       return;
     }
@@ -372,7 +372,7 @@ const DoctorDashboard = () => {
     const interval = setInterval(() => {
       const currentLang = i18n.resolvedLanguage || i18n.language || 'en';
       const langCode = currentLang.split('-')[0];
-      api.get(`/doctor/patient/${selectedPatientId}`, { params: { language: langCode } })
+      doctorApi.patientDetail(selectedPatientId, langCode)
         .then(res => setDetail(res.data))
         .catch(() => {});
       fetchPatientMessages(selectedPatientId);
@@ -381,8 +381,8 @@ const DoctorDashboard = () => {
   }, [selectedPatientId, i18n.language, i18n.resolvedLanguage]);
 
   const fetchPatientDetail = async (patientId: string) => {
-    const currentUser = getUser();
-    if (isDr26DoctorEmail(currentUser?.email) || patientId === 'p-abhay-26' || patientId === ABHAY_UID) {
+    const isDemoMode = localStorage.getItem('carenetra_demo_mode') === 'true';
+    if (isDemoMode && (patientId === 'p-abhay-26' || patientId === ABHAY_UID)) {
       setDetail(abhayDoctorPatientDetail as any);
       setDetailLoading(false);
       return;
@@ -392,7 +392,7 @@ const DoctorDashboard = () => {
     try {
       const currentLang = i18n.resolvedLanguage || i18n.language || 'en';
       const langCode = currentLang.split('-')[0];
-      const res = await api.get(`/doctor/patient/${patientId}`, { params: { language: langCode } });
+      const res = await doctorApi.patientDetail(patientId, langCode);
       setDetail(res.data);
     } catch (err: any) {
       toast.error(err.response?.data?.detail || 'Failed to load patient detail');

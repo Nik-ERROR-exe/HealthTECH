@@ -49,6 +49,7 @@ async def lifespan(app: FastAPI):
             conn.execute(text("ALTER TYPE impactalertstatus ADD VALUE IF NOT EXISTS 'EN_ROUTE';"))
             conn.execute(text("ALTER TABLE medications ADD COLUMN IF NOT EXISTS taken BOOLEAN DEFAULT FALSE;"))
             conn.execute(text("ALTER TABLE doctor_messages ADD COLUMN IF NOT EXISTS sender_type VARCHAR(20) DEFAULT 'doctor';"))
+            conn.execute(text("ALTER TABLE wound_analyses ADD COLUMN IF NOT EXISTS is_wound BOOLEAN DEFAULT TRUE;"))
             conn.commit()
     except Exception as exc:
         logging.warning(f"[DB] Migration check skipped: {exc}")

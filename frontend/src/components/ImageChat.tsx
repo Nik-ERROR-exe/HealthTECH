@@ -9,6 +9,7 @@ import { imageApi } from '@/lib/api';
 
 interface WoundAnalysis {
   analysis_id: string;
+  is_wound?: boolean;
   summary: string;
   severity: string;
   redness_detected: boolean;
@@ -68,7 +69,11 @@ const ImageChat = ({ open, onClose }: ImageChatProps) => {
     try {
       const res = await imageApi.uploadImage(file);
       setAnalysis(res.data);
-      toast.success('Wound image analyzed successfully');
+      if (res.data.is_wound === false) {
+        toast.info('Uploaded photo does not appear to show a clinical wound.');
+      } else {
+        toast.success('Wound image analyzed successfully');
+      }
     } catch (err: any) {
       toast.error(err.response?.data?.detail || 'Failed to analyze image');
       setPreviewUrl(null);
@@ -105,7 +110,7 @@ const ImageChat = ({ open, onClose }: ImageChatProps) => {
   };
 
   const severityInfo = analysis ? (SEVERITY_CONFIG[analysis.severity] || SEVERITY_CONFIG.NORMAL) : null;
-  const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+  const isWoundImage = analysis?.is_wound !== false;
 
   if (!open) return null;
 
@@ -135,7 +140,7 @@ const ImageChat = ({ open, onClose }: ImageChatProps) => {
               <div>
                 <p className="text-sm font-semibold">Wound Analysis Chat</p>
                 <p className="text-xs text-muted-foreground">
-                  {analysis ? 'Ask questions about your wound' : 'Upload a wound image to begin'}
+                  {analysis ? (isWoundImage ? 'Ask questions about your wound' : 'Non-wound photo uploaded') : 'Upload a wound image to begin'}
                 </p>
               </div>
             </div>
@@ -192,46 +197,56 @@ const ImageChat = ({ open, onClose }: ImageChatProps) => {
                 <div className="flex gap-4">
                   {previewUrl && (
                     <div className="w-24 h-24 rounded-xl overflow-hidden border border-border shrink-0">
-                      <img src={previewUrl} alt="Wound" className="w-full h-full object-cover" />
+                      <img src={previewUrl} alt="Uploaded Image" className="w-full h-full object-cover" />
                     </div>
                   )}
                   <div className="flex-1 space-y-2">
-                    <div className="flex items-center gap-2">
-                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${severityInfo?.bg} ${severityInfo?.color}`}>
-                        {severityInfo?.icon}
-                        {analysis.severity}
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        Score: {analysis.wound_score}/10
-                      </span>
-                    </div>
+                    {isWoundImage ? (
+                      <div className="flex items-center gap-2">
+                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${severityInfo?.bg} ${severityInfo?.color}`}>
+                          {severityInfo?.icon}
+                          {analysis.severity}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          Score: {analysis.wound_score}/10
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-muted text-muted-foreground border border-border">
+                          Non-Wound / Photo
+                        </span>
+                      </div>
+                    )}
                     <p className="text-sm text-foreground leading-relaxed">{analysis.summary}</p>
                   </div>
                 </div>
 
-                {/* Findings tags */}
-                <div className="flex flex-wrap gap-2">
-                  {analysis.redness_detected && (
-                    <span className="text-xs px-2.5 py-1 rounded-full bg-red-500/10 text-red-400 border border-red-500/20">
-                      Redness detected
-                    </span>
-                  )}
-                  {analysis.swelling_detected && (
-                    <span className="text-xs px-2.5 py-1 rounded-full bg-orange-500/10 text-orange-400 border border-orange-500/20">
-                      Swelling detected
-                    </span>
-                  )}
-                  {analysis.texture_change_detected && (
-                    <span className="text-xs px-2.5 py-1 rounded-full bg-yellow-500/10 text-yellow-400 border border-yellow-500/20">
-                      Texture change
-                    </span>
-                  )}
-                  {!analysis.redness_detected && !analysis.swelling_detected && !analysis.texture_change_detected && (
-                    <span className="text-xs px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                      No major findings
-                    </span>
-                  )}
-                </div>
+                {/* Findings tags — only render for confirmed wound images */}
+                {isWoundImage && (
+                  <div className="flex flex-wrap gap-2">
+                    {analysis.redness_detected && (
+                      <span className="text-xs px-2.5 py-1 rounded-full bg-red-500/10 text-red-400 border border-red-500/20">
+                        Redness detected
+                      </span>
+                    )}
+                    {analysis.swelling_detected && (
+                      <span className="text-xs px-2.5 py-1 rounded-full bg-orange-500/10 text-orange-400 border border-orange-500/20">
+                        Swelling detected
+                      </span>
+                    )}
+                    {analysis.texture_change_detected && (
+                      <span className="text-xs px-2.5 py-1 rounded-full bg-yellow-500/10 text-yellow-400 border border-yellow-500/20">
+                        Texture change
+                      </span>
+                    )}
+                    {!analysis.redness_detected && !analysis.swelling_detected && !analysis.texture_change_detected && (
+                      <span className="text-xs px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                        No major findings
+                      </span>
+                    )}
+                  </div>
+                )}
 
                 {/* AI advice */}
                 {analysis.ai_advice && (

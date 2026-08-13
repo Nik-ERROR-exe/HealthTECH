@@ -67,6 +67,10 @@ api.interceptors.response.use(
 
 // ── Doctor API helpers ──────────────────────────────────────
 export const doctorApi = {
+  dashboard: (language: string = 'en') =>
+    api.get('/doctor/dashboard', { params: { language } }),
+  patientDetail: (patientId: string, language: string = 'en') =>
+    api.get(`/doctor/patient/${patientId}`, { params: { language } }),
   scheduleCheckin: (patientId: string, nextCheckInAtIso: string) =>
     api.post(`/doctor/patient/${patientId}/schedule-checkin`, {
       next_check_in_at: nextCheckInAtIso,

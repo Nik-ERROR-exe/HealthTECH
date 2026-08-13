@@ -60,7 +60,20 @@ def _vlm_system_prompt(language: str) -> str:
 
 def _parse_vlm_result(text: str) -> dict:
     """Fallback text parsing if JSON extraction fails."""
-    t = (text or "").strip()[:300]
+    t = (text or "").strip()
+    low = t.lower()
+    if any(nw in low for nw in ("not a wound", "non-wound", "no wound", "face", "duck", "room", "food", "object")):
+        return {
+            "is_wound": False,
+            "score": 0.0,
+            "status": "NORMAL",
+            "severity": "NORMAL",
+            "summary": "The uploaded image does not appear to contain a visible clinical wound.",
+            "redness_detected": False,
+            "swelling_detected": False,
+            "texture_change_detected": False,
+            "raw_response": text or "",
+        }
     up = t.upper()
     if "HIGH" in up or "SEVERE" in up:
         severity, status = 8.0, "SEVERE"
@@ -73,10 +86,10 @@ def _parse_vlm_result(text: str) -> dict:
         "score": severity,
         "status": status,
         "severity": status,
-        "summary": t or "NVIDIA VLM returned no summary.",
-        "redness_detected": ("redness" in t.lower() or "erythema" in t.lower()),
-        "swelling_detected": ("swelling" in t.lower() or "edema" in t.lower()),
-        "texture_change_detected": ("texture" in t.lower() or "pus" in t.lower()),
+        "summary": t[:300] or "Wound image analyzed.",
+        "redness_detected": ("redness" in low or "erythema" in low),
+        "swelling_detected": ("swelling" in low or "edema" in low),
+        "texture_change_detected": ("texture" in low or "pus" in low),
         "raw_response": text or "",
     }
 
@@ -97,7 +110,7 @@ def _parse_vlm_json_result(text: str) -> dict:
 
     try:
         data = json.loads(raw_json)
-        is_wound = bool(data.get("is_wound", True))
+        is_wound = bool(data.get("is_wound", False))
 
         if not is_wound:
             return {
@@ -215,78 +228,29 @@ async def classify_with_nvidia_vlm(image_path: str, language: str = "en") -> dic
 
 
 # ─────────────────────────────────────────────
-# OpenCV fallback (your original logic, slightly polished)
+# OpenCV fallback
 # ─────────────────────────────────────────────
 def analyze_with_opencv(image_path: str) -> dict:
-    """Original OpenCV‑based analysis – used when the VLM is unavailable."""
+    """
+    OpenCV fallback used when the VLM is unavailable.
+    OpenCV heuristics alone cannot safely confirm whether an image is a clinical wound versus
+    a non-clinical object (e.g. face, room, duck, or food).
+    Classifies image as NOT CONFIRMED / NON-WOUND so generic textures are never manufactured into a wound diagnosis.
+    """
     img = cv2.imread(image_path)
     if img is None:
         raise ValueError(f"Could not load image: {image_path}")
 
-    # Resize for consistency
-    max_dim = 800
-    h, w = img.shape[:2]
-    if max(h, w) > max_dim:
-        scale = max_dim / max(h, w)
-        new_w = int(w * scale)
-        new_h = int(h * scale)
-        img = cv2.resize(img, (new_w, new_h))
-
-    # Redness
-    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-    lower_red1 = np.array([0, 50, 50])
-    upper_red1 = np.array([10, 255, 255])
-    lower_red2 = np.array([160, 50, 50])
-    upper_red2 = np.array([180, 255, 255])
-    mask1 = cv2.inRange(hsv, lower_red1, upper_red1)
-    mask2 = cv2.inRange(hsv, lower_red2, upper_red2)
-    red_mask = cv2.bitwise_or(mask1, mask2)
-    red_ratio = np.sum(red_mask > 0) / (img.shape[0] * img.shape[1])
-    redness_score = 0.0 if red_ratio < 0.02 else 2.5 if red_ratio < 0.05 else 5.0 if red_ratio < 0.10 else 8.0
-
-    # Swelling (contour area)
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    edges = cv2.Canny(gray, 50, 150)
-    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    swelling_score = 0.0
-    if contours:
-        largest = max(contours, key=cv2.contourArea)
-        area = cv2.contourArea(largest)
-        total_pixels = img.shape[0] * img.shape[1]
-        area_ratio = area / total_pixels
-        if area_ratio > 0.05:
-            swelling_score = 7.0
-        elif area_ratio > 0.03:
-            swelling_score = 4.0
-
-    # Texture (Laplacian variance)
-    laplacian = cv2.Laplacian(gray, cv2.CV_64F)
-    variance = laplacian.var()
-    texture_score = 0.0 if variance < 50 else 3.0 if variance < 150 else 5.0 if variance < 300 else 8.0
-
-    overall_score = (redness_score * 0.4) + (swelling_score * 0.3) + (texture_score * 0.3)
-    overall_score = round(overall_score, 1)
-
-    if overall_score < 2.0:
-        status = "NORMAL"
-    elif overall_score < 4.0:
-        status = "MILD"
-    elif overall_score < 7.0:
-        status = "MODERATE"
-    else:
-        status = "SEVERE"
-
-    findings = []
-    if redness_score > 0: findings.append("redness")
-    if swelling_score > 0: findings.append("swelling")
-    if texture_score > 0: findings.append("unusual texture")
-    summary = "Wound appears clean." if not findings else f"Wound shows {' and '.join(findings)}."
-
     return {
-        "score": overall_score,
-        "status": status,
-        "summary": summary,
-        "raw_response": f"CV: red={redness_score:.1f}, swell={swelling_score:.1f}, tex={texture_score:.1f}",
+        "is_wound": False,
+        "score": 0.0,
+        "status": "NORMAL",
+        "severity": "NORMAL",
+        "summary": "Image could not be safely confirmed as a clinical wound.",
+        "redness_detected": False,
+        "swelling_detected": False,
+        "texture_change_detected": False,
+        "raw_response": "OpenCV fallback engaged — unconfirmed clinical wound status",
     }
 
 
@@ -335,6 +299,8 @@ async def generate_ai_advice(
     LLM-written patient-facing advice grounded in the wound analysis, the
     patient's condition, and the RAG care guidelines. Falls back to `_static_advice`.
     """
+    if result.get("is_wound") is False:
+        return "Please upload a clear photo of your wound or affected surgical area for clinical analysis."
     context_parts = [
         f"Wound analysis: {result.get('summary', '')}",
         f"Severity: {result.get('status', 'NORMAL')} (score {result.get('score', 0)}/10)",
@@ -439,7 +405,7 @@ async def vision_agent_node(state: AgentState) -> AgentState:
         language=state.get("language") or "en",
     )
 
-    is_wound = result.get("is_wound", True)
+    is_wound = bool(result.get("is_wound", False))
     redness = result.get("redness_detected", False) if is_wound else False
     swelling = result.get("swelling_detected", False) if is_wound else False
     texture = result.get("texture_change_detected", False) if is_wound else False
@@ -451,6 +417,7 @@ async def vision_agent_node(state: AgentState) -> AgentState:
             patient_id=state["patient_id"],
             check_in_id=state["check_in_id"],
             image_url=wound_path,
+            is_wound=is_wound,
             severity=severity_enum,
             raw_llm_response=result["raw_response"],
             redness_detected=redness,
@@ -464,7 +431,7 @@ async def vision_agent_node(state: AgentState) -> AgentState:
         db.commit()
         db.refresh(analysis)
         wound_analysis_id = analysis.id
-        logger.info(f"[VisionAgent] WoundAnalysis saved, id={analysis.id}, severity={severity_str}")
+        logger.info(f"[VisionAgent] WoundAnalysis saved, id={analysis.id}, is_wound={is_wound}, severity={severity_str}")
     except Exception as e:
         db.rollback()
         logger.error(f"[VisionAgent] DB error: {e}")
@@ -474,6 +441,7 @@ async def vision_agent_node(state: AgentState) -> AgentState:
 
     return {
         **state,
+        "is_wound": is_wound,
         "wound_severity": severity_str,
         "wound_score": result["score"],
         "wound_analysis_id": wound_analysis_id,

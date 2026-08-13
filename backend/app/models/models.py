@@ -587,6 +587,7 @@ class WoundAnalysis(Base):
     )
 
     image_url: Mapped[str] = mapped_column(String(500), nullable=False)
+    is_wound: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     severity: Mapped[WoundSeverity] = mapped_column(Enum(WoundSeverity), nullable=False)
 
     # NVIDIA model raw response

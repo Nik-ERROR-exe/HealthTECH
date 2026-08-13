@@ -31,6 +31,10 @@ async def answer_wound_image_chat(analysis_id: str, query: str, db: Session) -> 
     if not analysis:
         raise ValueError("Wound analysis record not found")
 
+    is_wound = getattr(analysis, "is_wound", True)
+    if is_wound is False:
+        return "The uploaded image does not appear to show a clinical wound. If you need wound care analysis or advice, please upload a clear photograph of your wound or surgical area."
+
     # 1. Query Qdrant RAG vector store using user's query and analysis context
     rag_query = f"{query} {analysis.analysis_summary or ''}".strip()
     rag_context = ""
