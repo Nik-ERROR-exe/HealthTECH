@@ -38,12 +38,14 @@ from app.routers.alerts import router as alerts_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Ensure database schema has updated columns and enum values (ambulance migration)
+    # Ensure database schema has updated columns and enum values (ambulance + volunteer migration)
     try:
         from sqlalchemy import text
         with engine.connect() as conn:
             conn.execute(text("ALTER TABLE impact_alerts ADD COLUMN IF NOT EXISTS responder_latitude FLOAT;"))
             conn.execute(text("ALTER TABLE impact_alerts ADD COLUMN IF NOT EXISTS responder_longitude FLOAT;"))
+            conn.execute(text("ALTER TABLE impact_alerts ADD COLUMN IF NOT EXISTS responder_volunteer_id UUID;"))
+            conn.execute(text("ALTER TABLE impact_alerts ADD COLUMN IF NOT EXISTS volunteers_notified INTEGER DEFAULT 0;"))
             conn.execute(text("ALTER TYPE impactalertstatus ADD VALUE IF NOT EXISTS 'EN_ROUTE';"))
             conn.commit()
     except Exception as exc:

@@ -59,6 +59,23 @@ def migrate_database():
     except Exception as e:
         print(f"[ERROR] Error creating missing tables: {e}")
 
+    # 4. Add any missing columns to existing tables (idempotent)
+    with engine.connect() as conn:
+        conn = conn.execution_options(isolation_level="AUTOCOMMIT")
+        alter_statements = [
+            "ALTER TABLE impact_alerts ADD COLUMN IF NOT EXISTS responder_latitude FLOAT;",
+            "ALTER TABLE impact_alerts ADD COLUMN IF NOT EXISTS responder_longitude FLOAT;",
+            "ALTER TABLE impact_alerts ADD COLUMN IF NOT EXISTS responder_volunteer_id UUID;",
+            "ALTER TABLE impact_alerts ADD COLUMN IF NOT EXISTS volunteers_notified INTEGER DEFAULT 0;",
+            "ALTER TYPE impactalertstatus ADD VALUE IF NOT EXISTS 'EN_ROUTE';",
+        ]
+        for stmt in alter_statements:
+            try:
+                conn.execute(text(stmt))
+                print(f"[OK] Executed: {stmt}")
+            except Exception as e:
+                print(f"[WARNING] Warning executing '{stmt}': {e}")
+
     print("\n[SUCCESS] Migration script finished successfully!")
 
 if __name__ == "__main__":

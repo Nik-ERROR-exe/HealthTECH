@@ -681,51 +681,6 @@ const PatientDashboard = () => {
             </div>
           </motion.div>
         </div>
-        <div className="grid md:grid-cols-2 gap-5">
-          <motion.div custom={0.5} variants={fadeUp} className="glass-card rounded-3xl p-5 border-l-8" style={{ borderLeftColor: riskConfig.color }}>
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-xs uppercase tracking-wider text-muted-foreground">Current Risk Level</p>
-                <div className="flex items-center gap-2 mt-1">
-                  <RiskIcon size={20} className={riskConfig.text} />
-                  <span className="text-2xl font-bold text-foreground">{riskConfig.label}</span>
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">Risk Score: {riskScore} / 100</p>
-              </div>
-              <div className="w-16 h-16">
-                <RadialBarChart width={64} height={64} cx="50%" cy="50%" innerRadius="60%" outerRadius="80%" data={[{ value: riskScore }]} startAngle={90} endAngle={-270}>
-                  <RadialBar dataKey="value" fill={riskConfig.color} cornerRadius={10} />
-                </RadialBarChart>
-              </div>
-            </div>
-            {riskTier !== 'GREEN' && (
-              <div className="mt-3 p-2 rounded-lg bg-red-500/10 text-red-400 text-xs flex items-center gap-2">
-                <AlertTriangle size={14} /> Action required: {riskTier === 'ORANGE' ? 'Notify doctor' : riskTier === 'RED' ? 'Immediate attention needed' : 'Emergency contact pending'}
-              </div>
-            )}
-          </motion.div>
-
-          <motion.div custom={0.6} variants={fadeUp}
-            className="glass-card rounded-3xl p-5 border border-border/50 cursor-pointer hover:border-primary/40 hover:scale-[1.01] transition-all"
-            onClick={() => setShowDoctorChat(true)}
-          >
-            <div className="flex items-start gap-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 flex items-center justify-center shrink-0">
-                <MessageSquare size={18} className="text-white" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-semibold text-foreground">Doctor Messages</p>
-                  {data.unread_messages > 0 && <span className="text-[10px] bg-primary text-white px-2 py-0.5 rounded-full animate-pulse">{data.unread_messages} new</span>}
-                </div>
-                <p className="text-xs text-muted-foreground mt-0.5 truncate">
-                  {messages.length > 0 ? `${messages[0].doctor_name}: ${messages[0].message}` : 'No messages yet. Tap to open chat.'}
-                </p>
-                <p className="text-[10px] text-primary mt-1 flex items-center gap-1"><ChevronRight size={10} /> Tap to open chat</p>
-              </div>
-            </div>
-          </motion.div>
-        </div>
 
         {/* WhatsApp-Style Doctor Chat Modal */}
         {showDoctorChat && (
