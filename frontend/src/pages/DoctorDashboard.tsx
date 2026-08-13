@@ -13,10 +13,10 @@ import {
 } from 'recharts';
 import { useNavigate } from 'react-router-dom';
 import DashboardLayout from '@/components/DashboardLayout';
-import EmergencyBanner from '@/components/EmergencyBanner';
+// import EmergencyBanner from '@/components/EmergencyBanner';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
-import api, { doctorApi, triggerCheckin, getPendingAlerts, dispatchAmbulance, acknowledgeAlert } from '@/lib/api';
+import api, { doctorApi, triggerCheckin } from '@/lib/api';
 import Lenis from '@studio-freight/lenis';
 import { getUser } from '@/lib/auth';
 import {
@@ -218,91 +218,92 @@ const DoctorDashboard = () => {
   const [volunteerStatus, setVolunteerStatus] = useState<{ online: number; within_5km: number } | null>(null);
 
   // ── Pending Emergency Alerts State & Audio Alarm ──
-  const [pendingEmergencyAlerts, setPendingEmergencyAlerts] = useState<any[]>([]);
-  const [showAlertModal, setShowAlertModal] = useState(false);
-  const [currentEmergencyAlert, setCurrentEmergencyAlert] = useState<any | null>(null);
-  const [dispatchingAmbulance, setDispatchingAmbulance] = useState(false);
-  const alarmAudioRef = useRef<HTMLAudioElement | null>(null);
+  // TODO: Re-enable when emergency alert system is needed
+  // const [pendingEmergencyAlerts, setPendingEmergencyAlerts] = useState<any[]>([]);
+  // const [showAlertModal, setShowAlertModal] = useState(false);
+  // const [currentEmergencyAlert, setCurrentEmergencyAlert] = useState<any | null>(null);
+  // const [dispatchingAmbulance, setDispatchingAmbulance] = useState(false);
+  // const alarmAudioRef = useRef<HTMLAudioElement | null>(null);
 
-  useEffect(() => {
-    alarmAudioRef.current = new Audio('/alert.mp3');
-    alarmAudioRef.current.loop = true;
+  // useEffect(() => {
+  //   alarmAudioRef.current = new Audio('/alert.mp3');
+  //   alarmAudioRef.current.loop = true;
 
-    const checkPendingAlerts = async () => {
-      try {
-        const data = await getPendingAlerts();
-        if (Array.isArray(data) && data.length > 0) {
-          setPendingEmergencyAlerts(data);
-          if (!showAlertModal) {
-            const latest = data[0];
-            setCurrentEmergencyAlert(latest);
-            setShowAlertModal(true);
-            if (alarmAudioRef.current) {
-              alarmAudioRef.current.play().catch(e => console.warn('Audio play blocked', e));
-            }
-          }
-        }
-      } catch {
-        // ignore polling errors
-      }
-    };
+  //   const checkPendingAlerts = async () => {
+  //     try {
+  //       const data = await getPendingAlerts();
+  //       if (Array.isArray(data) && data.length > 0) {
+  //         setPendingEmergencyAlerts(data);
+  //         if (!showAlertModal) {
+  //           const latest = data[0];
+  //           setCurrentEmergencyAlert(latest);
+  //           setShowAlertModal(true);
+  //           if (alarmAudioRef.current) {
+  //             alarmAudioRef.current.play().catch(e => console.warn('Audio play blocked', e));
+  //           }
+  //         }
+  //       }
+  //     } catch {
+  //       // ignore polling errors
+  //     }
+  //   };
 
-    checkPendingAlerts();
-    const interval = setInterval(checkPendingAlerts, 5000);
-    return () => {
-      clearInterval(interval);
-      if (alarmAudioRef.current) {
-        alarmAudioRef.current.pause();
-        alarmAudioRef.current.currentTime = 0;
-      }
-    };
-  }, [showAlertModal]);
+  //   checkPendingAlerts();
+  //   const interval = setInterval(checkPendingAlerts, 5000);
+  //   return () => {
+  //     clearInterval(interval);
+  //     if (alarmAudioRef.current) {
+  //       alarmAudioRef.current.pause();
+  //       alarmAudioRef.current.currentTime = 0;
+  //     }
+  //   };
+  // }, [showAlertModal]);
 
-  const handleDispatchAmbulance = async () => {
-    if (!currentEmergencyAlert) return;
-    setDispatchingAmbulance(true);
-    try {
-      await dispatchAmbulance(currentEmergencyAlert.alert_id);
-      toast.success('🚑 Ambulance dispatched successfully!');
-      if (alarmAudioRef.current) {
-        alarmAudioRef.current.pause();
-        alarmAudioRef.current.currentTime = 0;
-      }
-      setShowAlertModal(false);
-      setCurrentEmergencyAlert(null);
-      fetchDashboard();
-    } catch (err: any) {
-      toast.error(err.response?.data?.detail || 'Failed to dispatch ambulance');
-    } finally {
-      setDispatchingAmbulance(false);
-    }
-  };
+  // const handleDispatchAmbulance = async () => {
+  //   if (!currentEmergencyAlert) return;
+  //   setDispatchingAmbulance(true);
+  //   try {
+  //     await dispatchAmbulance(currentEmergencyAlert.alert_id);
+  //     toast.success('🚑 Ambulance dispatched successfully!');
+  //     if (alarmAudioRef.current) {
+  //       alarmAudioRef.current.pause();
+  //       alarmAudioRef.current.currentTime = 0;
+  //     }
+  //     setShowAlertModal(false);
+  //     setCurrentEmergencyAlert(null);
+  //     fetchDashboard();
+  //   } catch (err: any) {
+  //     toast.error(err.response?.data?.detail || 'Failed to dispatch ambulance');
+  //   } finally {
+  //     setDispatchingAmbulance(false);
+  //   }
+  // };
 
-  const handleCallPatient = () => {
-    if (currentEmergencyAlert?.patient_phone && currentEmergencyAlert.patient_phone !== 'N/A') {
-      window.location.href = `tel:${currentEmergencyAlert.patient_phone}`;
-    } else {
-      toast.info(`Calling patient ${currentEmergencyAlert?.patient_name || ''}... (demo)`);
-    }
-  };
+  // const handleCallPatient = () => {
+  //   if (currentEmergencyAlert?.patient_phone && currentEmergencyAlert.patient_phone !== 'N/A') {
+  //     window.location.href = `tel:${currentEmergencyAlert.patient_phone}`;
+  //   } else {
+  //     toast.info(`Calling patient ${currentEmergencyAlert?.patient_name || ''}... (demo)`);
+  //   }
+  // };
 
-  const handleAcknowledgeAlert = async () => {
-    if (!currentEmergencyAlert) return;
-    try {
-      await acknowledgeAlert(currentEmergencyAlert.alert_id);
-      toast.info('Alert acknowledged');
-    } catch {
-      // ignore
-    }
-    if (alarmAudioRef.current) {
-      alarmAudioRef.current.pause();
-      alarmAudioRef.current.currentTime = 0;
-    }
-    setShowAlertModal(false);
-    setCurrentEmergencyAlert(null);
-  };
+  // const handleAcknowledgeAlert = async () => {
+  //   if (!currentEmergencyAlert) return;
+  //   try {
+  //     await acknowledgeAlert(currentEmergencyAlert.alert_id);
+  //     toast.info('Alert acknowledged');
+  //   } catch {
+  //     // ignore
+  //   }
+  //   if (alarmAudioRef.current) {
+  //     alarmAudioRef.current.pause();
+  //     alarmAudioRef.current.currentTime = 0;
+  //   }
+  //   setShowAlertModal(false);
+  //   setCurrentEmergencyAlert(null);
+  // };
 
-  useEffect(() => { fetchDashboard(); fetchPracticeStats(); fetchAmbulanceStatus(); fetchVolunteerStatus(); }, []);
+  useEffect(() => { fetchDashboard(); fetchPracticeStats(); }, []);
 
   const fetchDashboard = async () => {
     const currentUser = getUser();
@@ -377,25 +378,19 @@ const DoctorDashboard = () => {
     }
   };
 
-  const fetchAmbulanceStatus = async () => {
-    try {
-      const res = await api.get('/doctor/volunteer-status');
-      setVolunteerStatus(res.data);
-    } catch {}
-  };
-
   const handleSelectPatient = (patientId: string) => {
     setSelectedPatientId(patientId);
     fetchPatientDetail(patientId);
   };
 
-  const handleDismissAlert = async (alertId: string) => {
-    try { await api.post(`/doctor/dismiss-alert/${alertId}`); setAlerts(a => a.filter(x => x.alert_id !== alertId)); toast.info('Alert dismissed'); } catch { toast.error('Failed to dismiss alert'); }
-  };
+  // TODO: Re-enable when emergency alert system is needed
+  // const handleDismissAlert = async (alertId: string) => {
+  //   try { await api.post(`/doctor/dismiss-alert/${alertId}`); setAlerts(a => a.filter(x => x.alert_id !== alertId)); toast.info('Alert dismissed'); } catch { toast.error('Failed to dismiss alert'); }
+  // };
 
-  const handleDispatchAlert = async (alertId: string) => {
-    try { await api.post(`/doctor/confirm-dispatch/${alertId}`); setAlerts(a => a.filter(x => x.alert_id !== alertId)); toast.success('Emergency dispatch confirmed'); fetchAmbulanceStatus(); } catch { toast.error('Failed to dispatch'); }
-  };
+  // const handleDispatchAlert = async (alertId: string) => {
+  //   try { await api.post(`/doctor/confirm-dispatch/${alertId}`); setAlerts(a => a.filter(x => x.alert_id !== alertId)); toast.success('Emergency dispatch confirmed'); } catch { toast.error('Failed to dispatch'); }
+  // };
 
   const handleSendMessage = async () => {
     if (!messageText.trim() || !selectedPatientId) return;
@@ -644,11 +639,11 @@ const DoctorDashboard = () => {
 
   return (
     <>
-      <EmergencyBanner
+      {/* <EmergencyBanner
         alerts={alerts.map(a => ({ id: a.alert_id, patient: a.patient_name, patient_id: a.patient_id, message: a.message, time: new Date(a.created_at).toLocaleTimeString() }))}
         onDismiss={handleDismissAlert}
         onDispatch={handleDispatchAlert}
-      />
+      /> */}
       <DashboardLayout>
         <motion.div initial="hidden" animate="visible" className="space-y-6">
 
@@ -673,7 +668,7 @@ const DoctorDashboard = () => {
               </button>
               <button className="relative p-2.5 rounded-xl bg-muted/50 border border-border hover:bg-muted transition-colors">
                 <Bell size={18} />
-                {alerts.length > 0 && <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full text-[10px] flex items-center justify-center text-white">{alerts.length}</span>}
+                {/* {alerts.length > 0 && <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full text-[10px] flex items-center justify-center text-white">{alerts.length}</span>} */}
               </button>
             </div>
           </div>
@@ -1144,6 +1139,7 @@ const DoctorDashboard = () => {
         </motion.div>
 
         {/* ── Real-time Emergency Alert Popup Modal ── */}
+        {/* TODO: Re-enable when emergency alert system is needed
         <AnimatePresence>
           {showAlertModal && currentEmergencyAlert && (
             <motion.div
@@ -1222,6 +1218,7 @@ const DoctorDashboard = () => {
             </motion.div>
           )}
         </AnimatePresence>
+        */}
 
       </DashboardLayout>
     </>

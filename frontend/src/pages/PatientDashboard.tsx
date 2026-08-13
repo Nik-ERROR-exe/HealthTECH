@@ -12,7 +12,7 @@ import { toast } from 'sonner';
 import DashboardLayout from '@/components/DashboardLayout';
 import ImageChat from '@/components/ImageChat';
 import { getUser } from '@/lib/auth';
-import api, { conversationApi } from '@/lib/api';
+import api, { conversationApi, patientApi } from '@/lib/api';
 import ImpactDetector, { ImpactDetectorHandle } from '@/components/ImpactDetector';
 import Lenis from '@studio-freight/lenis';
 import CarePlanLockedView from '@/components/payment/CarePlanLockedView';
@@ -368,22 +368,51 @@ const PatientDashboard = () => {
     }));
   }, [checkinHistory]);
 
-  // Initialize medsState from data when data loads
+  const MEDS_STATE_KEY = 'carenetra_meds_state';
+
+  const loadMedsState = (): Record<string, boolean> => {
+    try {
+      const stored = localStorage.getItem(MEDS_STATE_KEY);
+      return stored ? JSON.parse(stored) : {};
+    } catch {
+      return {};
+    }
+  };
+
+  const saveMedsState = (state: Record<string, boolean>) => {
+    try {
+      localStorage.setItem(MEDS_STATE_KEY, JSON.stringify(state));
+    } catch {
+      // ignore
+    }
+  };
+
+  // Initialize medsState from localStorage first, then backend data
   useEffect(() => {
     if (data?.medications_today) {
+      const stored = loadMedsState();
       const initial: Record<string, boolean> = {};
       data.medications_today.forEach(m => {
-        initial[m.id] = m.taken ?? false;
+        initial[m.id] = stored[m.id] ?? (m.taken ?? false);
       });
       setMedsState(initial);
     }
   }, [data?.medications_today]);
 
-  const toggleMedTaken = (medId: string) => {
-    setMedsState(prev => ({ ...prev, [medId]: !prev[medId] }));
-    const med = data?.medications_today.find(m => m.id === medId);
+  const toggleMedTaken = async (medId: string) => {
     const nowTaken = !medsState[medId];
-    toast.success(`${med?.name || 'Medication'} marked as ${nowTaken ? 'Taken ✓' : 'Not Taken'}`);
+    try {
+      await patientApi.toggleMedicationTaken(medId, nowTaken);
+      setMedsState(prev => {
+        const next = { ...prev, [medId]: nowTaken };
+        saveMedsState(next);
+        return next;
+      });
+      const med = data?.medications_today.find(m => m.id === medId);
+      toast.success(`${med?.name || 'Medication'} marked as ${nowTaken ? 'Taken ✓' : 'Not Taken'}`);
+    } catch {
+      toast.error('Failed to update medication status');
+    }
   };
 
   // Scroll chat to bottom

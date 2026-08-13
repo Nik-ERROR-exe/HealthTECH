@@ -197,6 +197,40 @@ def get_patient_dashboard(
 
 
 # ────────────────────────────────────────────
+# POST /api/patient/medications/{medication_id}/taken
+# ────────────────────────────────────────────
+
+@router.post("/medications/{medication_id}/taken")
+def toggle_medication_taken(
+    medication_id: str,
+    payload: dict,
+    current_user: User    = Depends(require_patient),
+    db:           Session = Depends(get_db),
+):
+    taken = payload.get("taken")
+    if taken is None:
+        raise HTTPException(status_code=400, detail="taken field is required")
+
+    patient = _get_patient_profile(current_user, db)
+    medication = db.query(Medication).filter(Medication.id == medication_id).first()
+    if not medication:
+        raise HTTPException(status_code=404, detail="Medication not found")
+
+    check_in = CheckIn(
+        patient_id=patient.id,
+        course_id=medication.course_id,
+        input_type=InputType.TEXT,
+        raw_input=f"Medication {'taken' if taken else 'not taken'} via dashboard",
+        symptom_summary=f"Patient marked {medication.name} as {'taken' if taken else 'not taken'}",
+        medication_taken=taken,
+    )
+    db.add(check_in)
+    db.commit()
+
+    return {"status": "ok", "check_in_id": check_in.id}
+
+
+# ────────────────────────────────────────────
 # POST /api/patient/checkin  (text / agent)
 # ────────────────────────────────────────────
 

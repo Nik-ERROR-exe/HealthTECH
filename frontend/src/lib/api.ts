@@ -116,6 +116,12 @@ export const checkinApi = {
     pendingId ? api.post(`/checkin/consume/${pendingId}`) : api.post('/checkin/consume'),
 };
 
+// ── Patient API helpers ─────────────────────────────────────
+export const patientApi = {
+  toggleMedicationTaken: (medicationId: string, taken: boolean) =>
+    api.post(`/patient/medications/${medicationId}/taken`, { taken }),
+};
+
 // ── Image API helpers ───────────────────────────────────────
 export const imageApi = {
   uploadImage: (file: File) => {
