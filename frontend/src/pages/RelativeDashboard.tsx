@@ -119,6 +119,12 @@ const RelativeDashboard = () => {
   useEffect(() => {
     fetchDashboard();
     fetchMessages();
+
+    const interval = setInterval(() => {
+      fetchDashboard();
+      fetchMessages();
+    }, 4000);
+    return () => clearInterval(interval);
   }, []);
 
   const copyId = () => {

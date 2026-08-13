@@ -130,6 +130,7 @@ def get_patient_dashboard(
                     "frequency":    m.frequency,
                     "time_of_day":  m.time_of_day,
                     "instructions": m.special_instructions,
+                    "taken":        m.taken,
                 }
                 for m in meds
             ]
@@ -216,18 +217,10 @@ def toggle_medication_taken(
     if not medication:
         raise HTTPException(status_code=404, detail="Medication not found")
 
-    check_in = CheckIn(
-        patient_id=patient.id,
-        course_id=medication.course_id,
-        input_type=InputType.TEXT,
-        raw_input=f"Medication {'taken' if taken else 'not taken'} via dashboard",
-        symptom_summary=f"Patient marked {medication.name} as {'taken' if taken else 'not taken'}",
-        medication_taken=taken,
-    )
-    db.add(check_in)
+    medication.taken = taken
     db.commit()
 
-    return {"status": "ok", "check_in_id": check_in.id}
+    return {"status": "ok", "taken": taken}
 
 
 # ────────────────────────────────────────────
@@ -855,13 +848,16 @@ def get_messages(
 
         messages = db.query(DoctorMessage).filter(
             DoctorMessage.patient_id == profile.id
-        ).order_by(DoctorMessage.created_at.desc()).limit(50).all()
+        ).order_by(DoctorMessage.created_at.asc()).limit(100).all()
 
-        # Mark all as read
+        # Mark doctor messages as read
+        has_unread = False
         for m in messages:
-            if not m.is_read:
+            if not m.is_read and (getattr(m, "sender_type", "doctor") == "doctor"):
                 m.is_read = True
-        db.commit()
+                has_unread = True
+        if has_unread:
+            db.commit()
 
         from app.models.models import DoctorProfile
         results = []
@@ -883,9 +879,10 @@ def get_messages(
             results.append({
                 "id":          m.id,
                 "message":     m.message,
+                "sender_type": getattr(m, "sender_type", "doctor") or "doctor",
                 "doctor_name": doctor_name,
                 "created_at":  m.created_at.isoformat(),
-                "is_read":     True,
+                "is_read":     m.is_read,
             })
 
         return {"messages": results}
@@ -894,6 +891,38 @@ def get_messages(
     except Exception as e:
         logger.error(f"Messages error: {e}")
         return JSONResponse(status_code=200, content={"messages": []})
+
+
+@router.post("/messages")
+def send_message(
+    payload:      dict,
+    current_user: User    = Depends(require_patient),
+    db:           Session = Depends(get_db),
+):
+    profile = _get_patient_profile(current_user, db)
+
+    message_text = payload.get("message")
+    if not message_text or not message_text.strip():
+        raise HTTPException(status_code=400, detail="message is required")
+
+    active_course = db.query(MedicalCourse).filter(
+        MedicalCourse.patient_id == profile.id,
+        MedicalCourse.status     == "ACTIVE",
+    ).first()
+    if not active_course:
+        raise HTTPException(status_code=400, detail="No active course found")
+
+    message = DoctorMessage(
+        doctor_id   = active_course.doctor_id,
+        patient_id  = profile.id,
+        message     = message_text.strip(),
+        sender_type = "patient",
+    )
+    db.add(message)
+    db.commit()
+    db.refresh(message)
+
+    return {"status": "ok", "message_id": message.id}
 
 
 # ────────────────────────────────────────────

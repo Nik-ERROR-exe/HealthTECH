@@ -214,20 +214,19 @@ def get_relative_dashboard(
             except Exception:
                 recovery_trend = []
 
-        # Medication adherence (taken vs missed from check_ins)
+        # Medication adherence from medication taken status
         medication_adherence = {"taken": 0, "missed": 0, "total": 0}
         if active_course:
-            adherence_checkins = db.query(CheckIn).filter(
-                CheckIn.patient_id == patient.id,
-                CheckIn.course_id == active_course.id,
-                CheckIn.medication_taken != None,
+            meds_for_adherence = db.query(Medication).filter(
+                Medication.course_id == active_course.id,
+                Medication.is_active == True,
             ).all()
-            for c in adherence_checkins:
-                if c.medication_taken:
+            for m in meds_for_adherence:
+                medication_adherence["total"] += 1
+                if m.taken:
                     medication_adherence["taken"] += 1
                 else:
                     medication_adherence["missed"] += 1
-                medication_adherence["total"] += 1
 
         # Symptom trend (last 7 check-ins)
         symptom_trend = []

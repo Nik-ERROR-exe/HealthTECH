@@ -473,6 +473,7 @@ class Medication(Base):
     time_of_day: Mapped[str] = mapped_column(String(200), nullable=True) # e.g. "8 AM, 8 PM"
     special_instructions: Mapped[str] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    taken: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     course: Mapped["MedicalCourse"] = relationship("MedicalCourse", back_populates="medications")
@@ -668,6 +669,7 @@ class DoctorMessage(Base):
         UUID(as_uuid=False), ForeignKey("patient_profiles.id", ondelete="CASCADE")
     )
     message: Mapped[str] = mapped_column(Text, nullable=False)
+    sender_type: Mapped[str] = mapped_column(String(20), nullable=False, default="doctor")
     is_read: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 

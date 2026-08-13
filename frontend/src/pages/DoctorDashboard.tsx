@@ -205,6 +205,7 @@ const DoctorDashboard = () => {
   const [schedulingId, setSchedulingId] = useState<string | null>(null);
   const [customTime, setCustomTime] = useState('');
   const [messageText, setMessageText] = useState('');
+  const [patientMessages, setPatientMessages] = useState<Array<{ id: string; message: string; sender_type: string; is_read: boolean; created_at: string }>>([]);
   const [sendingMsg, setSendingMsg] = useState(false);
   const [showAddPanel, setShowAddPanel] = useState(false);
   const [addPanelStep, setAddPanelStep] = useState<'search' | 'pick-course' | 'done'>('search');
@@ -320,6 +321,7 @@ const DoctorDashboard = () => {
       setAlerts([]);
       setSelectedPatientId('p-abhay-26');
       fetchPatientDetail('p-abhay-26');
+      fetchPatientMessages('p-abhay-26');
       setLoading(false);
       return;
     }
@@ -334,11 +336,39 @@ const DoctorDashboard = () => {
         const firstId = res.data.patients[0].patient_id;
         setSelectedPatientId(firstId);
         fetchPatientDetail(firstId);
+        fetchPatientMessages(firstId);
       }
     } catch (err: any) {
       toast.error(err.response?.data?.detail || t('common.loadError'));
     } finally { setLoading(false); }
   };
+
+  const fetchPatientMessages = async (patientId: string) => {
+    const currentUser = getUser();
+    if (isDr26DoctorEmail(currentUser?.email) || patientId === 'p-abhay-26' || patientId === ABHAY_UID) {
+      setPatientMessages(abhayMessages as any);
+      return;
+    }
+    try {
+      const res = await api.get(`/doctor/patient/${patientId}/messages`);
+      setPatientMessages(res.data.messages || []);
+    } catch {
+      /* silent */
+    }
+  };
+
+  useEffect(() => {
+    if (!selectedPatientId) return;
+    const interval = setInterval(() => {
+      const currentLang = i18n.resolvedLanguage || i18n.language || 'en';
+      const langCode = currentLang.split('-')[0];
+      api.get(`/doctor/patient/${selectedPatientId}`, { params: { language: langCode } })
+        .then(res => setDetail(res.data))
+        .catch(() => {});
+      fetchPatientMessages(selectedPatientId);
+    }, 4000);
+    return () => clearInterval(interval);
+  }, [selectedPatientId, i18n.language, i18n.resolvedLanguage]);
 
   const fetchPatientDetail = async (patientId: string) => {
     const currentUser = getUser();
@@ -381,16 +411,8 @@ const DoctorDashboard = () => {
   const handleSelectPatient = (patientId: string) => {
     setSelectedPatientId(patientId);
     fetchPatientDetail(patientId);
+    fetchPatientMessages(patientId);
   };
-
-  // TODO: Re-enable when emergency alert system is needed
-  // const handleDismissAlert = async (alertId: string) => {
-  //   try { await api.post(`/doctor/dismiss-alert/${alertId}`); setAlerts(a => a.filter(x => x.alert_id !== alertId)); toast.info('Alert dismissed'); } catch { toast.error('Failed to dismiss alert'); }
-  // };
-
-  // const handleDispatchAlert = async (alertId: string) => {
-  //   try { await api.post(`/doctor/confirm-dispatch/${alertId}`); setAlerts(a => a.filter(x => x.alert_id !== alertId)); toast.success('Emergency dispatch confirmed'); } catch { toast.error('Failed to dispatch'); }
-  // };
 
   const handleSendMessage = async () => {
     if (!messageText.trim() || !selectedPatientId) return;
@@ -399,6 +421,7 @@ const DoctorDashboard = () => {
       await api.post('/doctor/message', { patient_id: selectedPatientId, message: messageText });
       toast.success('Message sent');
       setMessageText('');
+      fetchPatientMessages(selectedPatientId);
     } catch (err: any) {
       toast.error(err.response?.data?.detail || 'Failed to send message');
     } finally { setSendingMsg(false); }
@@ -923,11 +946,43 @@ const DoctorDashboard = () => {
                       </div>
                     </div>
 
-                    {/* Send Message to Patient */}
+                    {/* Doctor - Patient Chat Thread */}
                     <div className="mt-4 pt-4 border-t border-border/50">
-                      <p className="text-xs font-semibold text-foreground mb-2 flex items-center gap-1.5">
-                        <Send size={13} className="text-primary" /> {t('doctorDashboard.sendMessage')}
-                      </p>
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                          <Send size={13} className="text-primary" /> {t('doctorDashboard.sendMessage')}
+                        </p>
+                        <span className="text-[10px] text-muted-foreground">{patientMessages.length} message{patientMessages.length !== 1 ? 's' : ''}</span>
+                      </div>
+
+                      {patientMessages.length > 0 && (
+                        <div className="mb-3 space-y-2 max-h-48 overflow-y-auto pr-1 p-2.5 rounded-2xl bg-muted/30 border border-border/40">
+                          {patientMessages.map(msg => {
+                            const isDoctor = msg.sender_type === 'doctor';
+                            return (
+                              <div key={msg.id} className={`flex flex-col ${isDoctor ? 'items-end' : 'items-start'}`}>
+                                <div className={`max-w-[85%] rounded-2xl px-3 py-2 text-xs ${
+                                  isDoctor
+                                    ? 'bg-primary text-primary-foreground rounded-tr-xs'
+                                    : 'bg-muted/70 text-foreground border border-border/50 rounded-tl-xs'
+                                }`}>
+                                  <div className="flex items-center gap-2 mb-0.5">
+                                    <span className={`font-semibold text-[10px] ${isDoctor ? 'text-primary-foreground/90' : 'text-primary'}`}>
+                                      {isDoctor ? 'You (Doctor)' : detail.full_name}
+                                    </span>
+                                  </div>
+                                  <p className="leading-relaxed">{msg.message}</p>
+                                  <div className="flex items-center justify-end gap-1 mt-0.5 text-[9px] opacity-70">
+                                    <span>{new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                    {isDoctor && <span>{msg.is_read ? '✓✓ Read' : '✓ Sent'}</span>}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+
                       <div className="flex gap-2">
                         <input
                           value={messageText}

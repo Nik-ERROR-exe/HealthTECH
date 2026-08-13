@@ -278,6 +278,11 @@ const PatientDashboard = () => {
       await fetchNearbyAmbulances();
     };
     fetchAll();
+
+    const messagePollInterval = setInterval(() => {
+      fetchMessages();
+    }, 4000);
+    return () => clearInterval(messagePollInterval);
   }, []);
 
   const activePatientId = data?.unique_uid || data?.patient_id || user?.patient_id || user?.id || 'CN-2024-0847';
@@ -298,6 +303,18 @@ const PatientDashboard = () => {
 
   const openAgentChat = () => {
     window.dispatchEvent(new Event('carenetra:open-agent-chat'));
+  };
+
+  const handleSendPatientMessage = async () => {
+    if (!chatInput.trim()) return;
+    try {
+      await patientApi.sendMessage(chatInput.trim());
+      setChatInput('');
+      fetchMessages();
+      toast.success('Message sent');
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Failed to send message');
+    }
   };
 
   const handleWoundUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -401,16 +418,50 @@ const PatientDashboard = () => {
 
   const toggleMedTaken = async (medId: string) => {
     const nowTaken = !medsState[medId];
+
+    // Optimistically update local medsState
+    setMedsState(prev => {
+      const next = { ...prev, [medId]: nowTaken };
+      saveMedsState(next);
+      return next;
+    });
+
+    // Optimistically update data.medications_today
+    if (data?.medications_today) {
+      setData(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          medications_today: prev.medications_today.map(m =>
+            m.id === medId ? { ...m, taken: nowTaken } : m
+          )
+        };
+      });
+    }
+
     try {
       await patientApi.toggleMedicationTaken(medId, nowTaken);
+      const med = data?.medications_today.find(m => m.id === medId);
+      toast.success(`${med?.name || 'Medication'} marked as ${nowTaken ? 'Taken ✓' : 'Not Taken'}`);
+      window.dispatchEvent(new CustomEvent('carenetra:medication-toggled', { detail: { medId, taken: nowTaken } }));
+    } catch {
+      // Revert optimistic update
       setMedsState(prev => {
-        const next = { ...prev, [medId]: nowTaken };
+        const next = { ...prev, [medId]: !nowTaken };
         saveMedsState(next);
         return next;
       });
-      const med = data?.medications_today.find(m => m.id === medId);
-      toast.success(`${med?.name || 'Medication'} marked as ${nowTaken ? 'Taken ✓' : 'Not Taken'}`);
-    } catch {
+      if (data?.medications_today) {
+        setData(prev => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            medications_today: prev.medications_today.map(m =>
+              m.id === medId ? { ...m, taken: !nowTaken } : m
+            )
+          };
+        });
+      }
       toast.error('Failed to update medication status');
     }
   };
@@ -703,7 +754,9 @@ const PatientDashboard = () => {
                   {data.unread_messages > 0 && <span className="text-[10px] bg-primary text-white px-2 py-0.5 rounded-full animate-pulse">{data.unread_messages} new</span>}
                 </div>
                 <p className="text-xs text-muted-foreground mt-0.5 truncate">
-                  {messages.length > 0 ? `${messages[0].doctor_name}: ${messages[0].message}` : 'No messages yet. Tap to open chat.'}
+                  {messages.length > 0
+                    ? `${(messages[messages.length - 1] as any).sender_type === 'patient' ? 'You' : messages[messages.length - 1].doctor_name}: ${messages[messages.length - 1].message}`
+                    : 'No messages yet. Tap to open chat.'}
                 </p>
                 <p className="text-[10px] text-primary mt-1 flex items-center gap-1"><ChevronRight size={10} /> Tap to open chat</p>
               </div>
@@ -728,7 +781,7 @@ const PatientDashboard = () => {
               <div className="flex items-center gap-3 p-4 border-b border-border bg-gradient-to-r from-emerald-500/10 to-teal-500/10">
                 <div className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-500 to-teal-500 flex items-center justify-center text-white font-bold text-sm">Dr</div>
                 <div className="flex-1">
-                  <p className="text-sm font-semibold text-foreground">{messages.length > 0 ? messages[0].doctor_name : 'Your Doctor'}</p>
+                  <p className="text-sm font-semibold text-foreground">{messages.length > 0 ? (messages.find(m => m.doctor_name)?.doctor_name || messages[0].doctor_name) : 'Your Doctor'}</p>
                   <p className="text-[10px] text-emerald-400 flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-emerald-400"/> Online</p>
                 </div>
                 <button onClick={() => setShowDoctorChat(false)} className="p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground">✕</button>
@@ -737,17 +790,30 @@ const PatientDashboard = () => {
               {/* Chat Messages */}
               <div className="flex-1 overflow-y-auto p-4 space-y-3">
                 {messages.length > 0 ? (
-                  messages.map(msg => (
-                    <div key={msg.id} className="flex flex-col">
-                      <div className="max-w-[80%] self-start">
-                        <div className="bg-muted/50 border border-border/50 rounded-2xl rounded-tl-md px-4 py-2.5">
-                          <p className="text-xs font-medium text-primary mb-0.5">{msg.doctor_name}</p>
-                          <p className="text-sm text-foreground leading-relaxed">{msg.message}</p>
+                  messages.map(msg => {
+                    const isPatient = (msg as any).sender_type === 'patient';
+                    return (
+                      <div key={msg.id} className={`flex flex-col ${isPatient ? 'items-end' : 'items-start'}`}>
+                        <div className={`max-w-[80%] ${isPatient ? 'self-end' : 'self-start'}`}>
+                          <div className={`rounded-2xl px-4 py-2.5 ${
+                            isPatient
+                              ? 'bg-primary text-primary-foreground rounded-tr-md'
+                              : 'bg-muted/50 border border-border/50 rounded-tl-md'
+                          }`}>
+                            <p className={`text-xs font-medium mb-0.5 ${isPatient ? 'text-primary-foreground/80' : 'text-primary'}`}>
+                              {isPatient ? 'You' : (msg.doctor_name || 'Your Doctor')}
+                            </p>
+                            <p className={`text-sm leading-relaxed ${isPatient ? 'text-primary-foreground' : 'text-foreground'}`}>
+                              {msg.message}
+                            </p>
+                          </div>
+                          <p className={`text-[10px] text-muted-foreground mt-1 ${isPatient ? 'mr-1 text-right' : 'ml-1'}`}>
+                            {new Date(msg.created_at).toLocaleString()}
+                          </p>
                         </div>
-                        <p className="text-[10px] text-muted-foreground mt-1 ml-1">{new Date(msg.created_at).toLocaleString()}</p>
                       </div>
-                    </div>
-                  ))
+                    );
+                  })
                 ) : (
                   <div className="flex items-center justify-center h-full text-center">
                     <div>
@@ -770,18 +836,12 @@ const PatientDashboard = () => {
                     className="flex-1 px-4 py-2.5 rounded-full bg-muted/50 border border-border text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-primary/30"
                     onKeyDown={e => {
                       if (e.key === 'Enter' && chatInput.trim()) {
-                        toast.info('Messages from patients are handled via check-ins.');
-                        setChatInput('');
+                        handleSendPatientMessage();
                       }
                     }}
                   />
                   <button
-                    onClick={() => {
-                      if (chatInput.trim()) {
-                        toast.info('Messages from patients are handled via check-ins.');
-                        setChatInput('');
-                      }
-                    }}
+                    onClick={handleSendPatientMessage}
                     className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-500 to-teal-500 flex items-center justify-center text-white hover:scale-105 transition-transform shrink-0"
                   >
                     <Send size={16} />

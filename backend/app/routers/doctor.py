@@ -242,6 +242,7 @@ def get_patient_detail(
             "frequency":    m.frequency,
             "time_of_day":  m.time_of_day,
             "instructions": m.special_instructions,
+            "taken":        m.taken,
         }
         for m in meds
     ]
@@ -656,13 +657,54 @@ def send_message(
         raise HTTPException(status_code=403, detail="This patient is not assigned to you")
 
     message = DoctorMessage(
-        doctor_id  = doctor.id,
-        patient_id = payload.patient_id,
-        message    = payload.message,
+        doctor_id    = doctor.id,
+        patient_id   = payload.patient_id,
+        message      = payload.message,
+        sender_type  = "doctor",
     )
     db.add(message)
     db.commit()
     return {"message": "Message sent successfully"}
+
+
+@router.get("/patient/{patient_id}/messages")
+def get_patient_messages(
+    patient_id:   str,
+    current_user: User    = Depends(require_doctor),
+    db:           Session = Depends(get_db),
+):
+    doctor = _get_doctor_profile(current_user, db)
+
+    course = db.query(MedicalCourse).filter(
+        MedicalCourse.doctor_id  == doctor.id,
+        MedicalCourse.patient_id == patient_id,
+    ).first()
+    if not course:
+        raise HTTPException(status_code=403, detail="This patient is not assigned to you")
+
+    messages = db.query(DoctorMessage).filter(
+        DoctorMessage.patient_id == patient_id
+    ).order_by(DoctorMessage.created_at.asc()).limit(100).all()
+
+    has_unread = False
+    for m in messages:
+        if not m.is_read and getattr(m, "sender_type", "patient") == "patient":
+            m.is_read = True
+            has_unread = True
+    if has_unread:
+        db.commit()
+
+    results = []
+    for m in messages:
+        results.append({
+            "id":          m.id,
+            "message":     m.message,
+            "sender_type": getattr(m, "sender_type", "patient") or "patient",
+            "is_read":     m.is_read,
+            "created_at":  m.created_at.isoformat(),
+        })
+
+    return {"messages": results}
 
 
 # ────────────────────────────────────────────

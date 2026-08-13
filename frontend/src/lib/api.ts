@@ -120,6 +120,8 @@ export const checkinApi = {
 export const patientApi = {
   toggleMedicationTaken: (medicationId: string, taken: boolean) =>
     api.post(`/patient/medications/${medicationId}/taken`, { taken }),
+  sendMessage: (message: string) =>
+    api.post(`/patient/messages`, { message }),
 };
 
 // ── Image API helpers ───────────────────────────────────────
