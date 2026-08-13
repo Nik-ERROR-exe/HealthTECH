@@ -23,7 +23,7 @@ DROP TABLE IF EXISTS check_ins CASCADE;
 DROP TABLE IF EXISTS medications CASCADE;
 DROP TABLE IF EXISTS medical_courses CASCADE;
 DROP TABLE IF EXISTS impact_alerts CASCADE;
-DROP TABLE IF EXISTS volunteer_profiles CASCADE;
+DROP TABLE IF EXISTS ambulances CASCADE;
 DROP TABLE IF EXISTS doctor_profiles CASCADE;
 DROP TABLE IF EXISTS patient_profiles CASCADE;
 DROP TABLE IF EXISTS users CASCADE;
@@ -43,7 +43,7 @@ DROP TYPE IF EXISTS userrole CASCADE;
 -- Labels MUST match the Python enum NAMES (the code filters on these).
 -- ─────────────────────────────────────────────
 
-CREATE TYPE userrole            AS ENUM ('PATIENT', 'DOCTOR', 'VOLUNTEER', 'RELATIVE');
+CREATE TYPE userrole            AS ENUM ('PATIENT', 'DOCTOR', 'AMBULANCE', 'RELATIVE');
 CREATE TYPE risktier            AS ENUM ('GREEN', 'YELLOW', 'ORANGE', 'RED', 'EMERGENCY');
 CREATE TYPE alertstatus         AS ENUM ('PENDING', 'ACKNOWLEDGED', 'DISPATCHED', 'DISMISSED');
 CREATE TYPE alerttype           AS ENUM ('NUDGE', 'DOCTOR', 'CRITICAL', 'EMERGENCY');
@@ -58,7 +58,7 @@ CREATE TYPE conditiontype       AS ENUM (
 );
 CREATE TYPE inputtype           AS ENUM ('VOICE', 'TEXT', 'AGENT');
 CREATE TYPE woundseverity       AS ENUM ('NORMAL', 'MILD', 'MODERATE', 'SEVERE');
-CREATE TYPE impactalertstatus   AS ENUM ('ACTIVE', 'RESPONDING', 'RESOLVED');
+CREATE TYPE impactalertstatus   AS ENUM ('ACTIVE', 'RESPONDING', 'EN_ROUTE', 'RESOLVED');
 
 -- ─────────────────────────────────────────────
 -- 2. TABLE 1: users
@@ -90,6 +90,8 @@ CREATE TABLE patient_profiles (
     allow_agent_mic_control  BOOLEAN NOT NULL DEFAULT TRUE,
     preferred_language       VARCHAR(10) NOT NULL DEFAULT 'en',
     social_memory            JSON,
+    custom_latitude          DOUBLE PRECISION,
+    custom_longitude         DOUBLE PRECISION,
     created_at               TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at               TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -97,7 +99,9 @@ CREATE TABLE patient_profiles (
 -- Live Neon migration (create_all() never alters existing tables):
 --   ALTER TABLE patient_profiles
 --     ADD COLUMN IF NOT EXISTS preferred_language VARCHAR(10) NOT NULL DEFAULT 'en',
---     ADD COLUMN IF NOT EXISTS social_memory JSON;
+--     ADD COLUMN IF NOT EXISTS social_memory JSON,
+--     ADD COLUMN IF NOT EXISTS custom_latitude DOUBLE PRECISION,
+--     ADD COLUMN IF NOT EXISTS custom_longitude DOUBLE PRECISION;
 
 -- ─────────────────────────────────────────────
 -- 4. TABLE 3: doctor_profiles
@@ -118,16 +122,19 @@ CREATE TABLE doctor_profiles (
 );
 
 -- ─────────────────────────────────────────────
--- 5. TABLE 4: volunteer_profiles
+-- 5. TABLE 4: ambulances
 -- ─────────────────────────────────────────────
-CREATE TABLE volunteer_profiles (
+CREATE TABLE ambulances (
     id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id           UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+    ambulance_name    VARCHAR(255),
+    driver_name       VARCHAR(255),
     phone             VARCHAR(30),
-    area_description  VARCHAR(255),              -- e.g. "Andheri West, Mumbai"
+    hospital_name     VARCHAR(255),
+    latitude          DOUBLE PRECISION,
+    longitude         DOUBLE PRECISION,
     is_available      BOOLEAN NOT NULL DEFAULT TRUE,
-    current_latitude  DOUBLE PRECISION,
-    current_longitude DOUBLE PRECISION,
+    current_status    VARCHAR(50) NOT NULL DEFAULT 'available',
     last_active_at    TIMESTAMPTZ,
     created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -146,7 +153,7 @@ CREATE TABLE relative_profiles (
 
 -- ─────────────────────────────────────────────
 -- 6. TABLE 5: impact_alerts
--- Crash/impact alerts reported by patients, responded to by volunteers.
+-- Crash/impact alerts reported by patients, responded to by ambulances.
 -- ─────────────────────────────────────────────
 CREATE TABLE impact_alerts (
     id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -160,12 +167,14 @@ CREATE TABLE impact_alerts (
     location_label         VARCHAR(500),          -- e.g. "12.97160° N, 77.59460° E"
     maps_url               VARCHAR(500),          -- Google Maps link
     status                 impactalertstatus NOT NULL DEFAULT 'ACTIVE',
-    responder_volunteer_id UUID REFERENCES volunteer_profiles(id) ON DELETE SET NULL,
+    responder_ambulance_id UUID REFERENCES ambulances(id) ON DELETE SET NULL,
     responder_user_id      UUID REFERENCES users(id) ON DELETE SET NULL,
     responder_name         VARCHAR(255),
+    responder_latitude     DOUBLE PRECISION,
+    responder_longitude    DOUBLE PRECISION,
     responded_at           TIMESTAMPTZ,
     resolved_at            TIMESTAMPTZ,
-    volunteers_notified    INTEGER NOT NULL DEFAULT 0,
+    ambulances_notified    INTEGER NOT NULL DEFAULT 0,
     sms_sent               BOOLEAN NOT NULL DEFAULT FALSE,
     created_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at             TIMESTAMPTZ NOT NULL DEFAULT now()

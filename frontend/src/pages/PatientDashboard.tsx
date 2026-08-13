@@ -153,7 +153,10 @@ const PatientDashboard = () => {
   const [uploadingWound, setUploadingWound] = useState(false);
   const [nearbyVolunteers, setNearbyVolunteers] = useState<number | null>(null);
   const [emergencyLoading, setEmergencyLoading] = useState(false);
-  const [emergencyResult, setEmergencyResult] = useState<{ alert_id: string; maps_url: string; volunteers_notified: number } | null>(null);
+  const [emergencyResult, setEmergencyResult] = useState<{ alert_id: string; maps_url: string; ambulances_notified: number } | null>(null);
+  const [customLat, setCustomLat] = useState<string>('');
+  const [customLng, setCustomLng] = useState<string>('');
+  const [customLocationSaved, setCustomLocationSaved] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const impactDetectorRef = useRef<ImpactDetectorHandle>(null);  // <-- FIXED
 
@@ -248,7 +251,7 @@ const PatientDashboard = () => {
     } catch { /* optional */ }
   };
 
-  const fetchNearbyVolunteers = async () => {
+  const fetchNearbyAmbulances = async () => {
     if (isAbhay) {
       setNearbyVolunteers(2);
       return;
@@ -265,7 +268,7 @@ const PatientDashboard = () => {
       await fetchMessages();
       await fetchCheckinHistory();
       await fetchWoundHistory();
-      await fetchNearbyVolunteers();
+      await fetchNearbyAmbulances();
     };
     fetchAll();
   }, []);
@@ -339,9 +342,9 @@ const PatientDashboard = () => {
       setEmergencyResult({
         alert_id: res.data.alert_id,
         maps_url: res.data.maps_url,
-        volunteers_notified: res.data.volunteers_notified,
+        ambulances_notified: res.data.ambulances_notified,
       });
-      toast.success(`Emergency alert sent! ${res.data.volunteers_notified} volunteer(s) notified.`);
+      toast.success(`Emergency alert sent! ${res.data.ambulances_notified} ambulance(s) notified.`);
     } catch (err: any) {
       toast.error(err.response?.data?.detail || 'Failed to send emergency alert. Please call emergency services.');
     } finally {
@@ -504,7 +507,7 @@ const PatientDashboard = () => {
               <div>
                 <p className="text-xs uppercase tracking-wider text-destructive font-semibold">Emergency Alert Sent</p>
                 <p className="text-sm text-foreground mt-1">
-                  {emergencyResult.volunteers_notified} volunteer{emergencyResult.volunteers_notified !== 1 ? 's' : ''} notified
+                  {emergencyResult.ambulances_notified} ambulance{emergencyResult.ambulances_notified !== 1 ? 's' : ''} notified
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">Alert ID: {emergencyResult.alert_id}</p>
               </div>
@@ -519,6 +522,85 @@ const PatientDashboard = () => {
                 </a>
               )}
             </div>
+          </motion.div>
+        )}
+
+        {/* Test Location Override - Restricted to nidhi33@gmail.com */}
+        {user?.email === 'nidhi33@gmail.com' && (
+          <motion.div custom={1.5} variants={fadeUp} className="glass-card rounded-3xl p-5 border border-amber-500/30 bg-amber-500/5">
+            <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
+              <MapPin size={16} className="text-amber-400" />
+              Test Location Override
+            </h3>
+            <p className="text-xs text-muted-foreground mb-3">
+              Manually set patient location for ambulance testing. This location will be used for emergency dispatch.
+            </p>
+            <div className="grid grid-cols-2 gap-3 mb-3">
+              <div>
+                <label className="text-xs text-muted-foreground block mb-1">Latitude</label>
+                <input
+                  type="number"
+                  step="any"
+                  value={customLat}
+                  onChange={(e) => setCustomLat(e.target.value)}
+                  placeholder="e.g. 19.0760"
+                  className="w-full bg-muted/50 border border-border rounded-xl py-2 px-3 text-sm outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500/50"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground block mb-1">Longitude</label>
+                <input
+                  type="number"
+                  step="any"
+                  value={customLng}
+                  onChange={(e) => setCustomLng(e.target.value)}
+                  placeholder="e.g. 72.8777"
+                  className="w-full bg-muted/50 border border-border rounded-xl py-2 px-3 text-sm outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500/50"
+                />
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={async () => {
+                  if (!customLat || !customLng) {
+                    toast.error('Enter both latitude and longitude');
+                    return;
+                  }
+                  try {
+                    await api.put('/patient/custom-location', {
+                      latitude: parseFloat(customLat),
+                      longitude: parseFloat(customLng),
+                    });
+                    toast.success('Custom location saved');
+                    setCustomLocationSaved(true);
+                    setTimeout(() => setCustomLocationSaved(false), 3000);
+                  } catch (err: any) {
+                    toast.error(err.response?.data?.detail || 'Failed to save location');
+                  }
+                }}
+                className="flex items-center gap-1.5 text-xs px-4 py-2 rounded-xl bg-amber-500 text-white hover:bg-amber-600 transition-colors font-medium"
+              >
+                Save Custom Location
+              </button>
+              <button
+                onClick={async () => {
+                  try {
+                    await api.delete('/patient/custom-location');
+                    setCustomLat('');
+                    setCustomLng('');
+                    toast.success('Custom location cleared');
+                  } catch (err: any) {
+                    toast.error(err.response?.data?.detail || 'Failed to clear location');
+                  }
+                }}
+                className="flex items-center gap-1.5 text-xs px-4 py-2 rounded-xl border border-border text-muted-foreground hover:bg-muted transition-colors"
+              >
+                Reset to Default
+              </button>
+            </div>
+            {customLocationSaved && (
+              <p className="text-xs text-amber-400 mt-2">Location saved successfully!</p>
+            )}
           </motion.div>
         )}
 
@@ -805,11 +887,11 @@ const PatientDashboard = () => {
             <div className="space-y-4">
               {nearbyVolunteers !== null ? (
                 <div className="flex items-center justify-between p-3 rounded-xl bg-muted/30">
-                  <div className="flex items-center gap-2"><MapPin size={16} className="text-primary" /><span className="text-sm">Nearby volunteers</span></div>
+                  <div className="flex items-center gap-2"><MapPin size={16} className="text-primary" /><span className="text-sm">Nearby ambulances</span></div>
                   <span className="text-2xl font-bold text-primary">{nearbyVolunteers}</span>
                 </div>
               ) : (
-                <p className="text-sm text-muted-foreground">Volunteer service available. In case of emergency, our network will be alerted.</p>
+                <p className="text-sm text-muted-foreground">Ambulance service available. In case of emergency, our network will be alerted.</p>
               )}
               <div className="flex items-center gap-2 text-xs text-muted-foreground"><Phone size={12} /> Emergency contact: {data.emergency_contact_phone || 'Not set'}</div>
               <div className="flex items-center gap-2 text-xs text-muted-foreground"><Bell size={12} /> Fall detection active – your phone monitors impacts.</div>

@@ -15,7 +15,7 @@ def run_ddl(sql):
             print(f"OK: {sql[:60]}...")
         except Exception as e:
             err = str(e).lower()
-            if "already exists" in err or "duplicate" in err:
+            if "already exists" in err or "duplicate" in err or "already" in err:
                 print(f"SKIP (already exists): {sql[:60]}...")
             else:
                 print(f"ERROR: {e}")
@@ -24,25 +24,40 @@ def run_ddl(sql):
 if __name__ == "__main__":
     print("Running migrations...\n")
 
-    # 1. Add RELATIVE to userrole enum
-    run_ddl("ALTER TYPE userrole ADD VALUE 'RELATIVE'")
+    # 1. Add AMBULANCE to userrole enum
+    run_ddl("ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'AMBULANCE'")
 
-    # 2. Create relationshiptype enum
-    run_ddl("CREATE TYPE relationshiptype AS ENUM ('DAUGHTER', 'SON', 'FRIEND', 'OTHER')")
+    # 2. Add EN_ROUTE to impact_alert_status enum
+    run_ddl("ALTER TYPE impact_alert_status ADD VALUE IF NOT EXISTS 'EN_ROUTE'")
 
-    # 3. Create relative_profiles table
-    run_ddl("""
-        CREATE TABLE relative_profiles (
-            id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            user_id          UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
-            patient_id       UUID NOT NULL REFERENCES patient_profiles(id) ON DELETE CASCADE,
-            relationship_type relationshiptype NOT NULL,
-            created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
-            updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
-        )
-    """)
+    # 3. Rename volunteer_profiles to ambulances
+    run_ddl("ALTER TABLE IF EXISTS volunteer_profiles RENAME TO ambulances")
+    
+    # 4. Add new ambulance-specific columns
+    run_ddl("ALTER TABLE ambulances ADD COLUMN IF NOT EXISTS ambulance_name VARCHAR(255)")
+    run_ddl("ALTER TABLE ambulances ADD COLUMN IF NOT EXISTS driver_name VARCHAR(255)")
+    run_ddl("ALTER TABLE ambulances ADD COLUMN IF NOT EXISTS hospital_name VARCHAR(255)")
+    run_ddl("ALTER TABLE ambulances ADD COLUMN IF NOT EXISTS area_description VARCHAR(255)")
+    run_ddl("ALTER TABLE ambulances ADD COLUMN IF NOT EXISTS current_status VARCHAR(50) DEFAULT 'available'")
 
-    # 4. Existing migration: add updated_at to impact_alerts
-    run_ddl("ALTER TABLE impact_alerts ADD COLUMN updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP")
+    # 5. Update impact_alerts: rename volunteer columns to ambulance
+    run_ddl("ALTER TABLE impact_alerts RENAME COLUMN IF EXISTS responder_volunteer_id TO responder_ambulance_id")
+    run_ddl("ALTER TABLE impact_alerts RENAME COLUMN IF EXISTS volunteers_notified TO ambulances_notified")
+
+    # 6. Add GPS tracking columns to impact_alerts
+    run_ddl("ALTER TABLE impact_alerts ADD COLUMN IF NOT EXISTS responder_latitude DOUBLE PRECISION")
+    run_ddl("ALTER TABLE impact_alerts ADD COLUMN IF NOT EXISTS responder_longitude DOUBLE PRECISION")
+
+    # 7. Update foreign key constraint for ambulances
+    run_ddl("ALTER TABLE impact_alerts DROP CONSTRAINT IF EXISTS impact_alerts_responder_volunteer_id_fkey")
+    run_ddl("ALTER TABLE impact_alerts ADD CONSTRAINT IF NOT EXISTS impact_alerts_responder_ambulance_id_fkey FOREIGN KEY (responder_ambulance_id) REFERENCES ambulances(id) ON DELETE SET NULL")
+
+    # 8. Update sequence/index names if they reference volunteer
+    run_ddl("ALTER INDEX IF EXISTS ix_volunteer_profiles_id RENAME TO ix_ambulances_id")
+    run_ddl("ALTER INDEX IF EXISTS ix_volunteer_profiles_user_id RENAME TO ix_ambulances_user_id")
+
+    # 9. Add custom location columns to patient_profiles for testing
+    run_ddl("ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS custom_latitude DOUBLE PRECISION")
+    run_ddl("ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS custom_longitude DOUBLE PRECISION")
 
     print("\nMigrations complete.")

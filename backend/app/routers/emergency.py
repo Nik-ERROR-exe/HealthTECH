@@ -1,6 +1,6 @@
 """
 CARENETRA — Emergency Router (Unified)
-Handles impact detection, live tracking, volunteer claiming, and notifications.
+Handles impact detection, live tracking, ambulance claiming, and notifications.
 """
 import logging
 import os
@@ -16,7 +16,7 @@ from geopy.distance import geodesic
 
 from app.database import get_db
 from app.models.models import (
-    User, VolunteerProfile, ImpactAlert, ImpactAlertStatus,
+    User, AmbulanceProfile, ImpactAlert, ImpactAlertStatus,
     PatientProfile, MedicalCourse, DoctorProfile,
 )
 from services.alert_service import send_sms_alert, send_email_alert
@@ -104,15 +104,35 @@ async def report_impact(
     maps_url = _build_maps_url(payload.latitude, payload.longitude)
     location_label = _build_location_label(payload.latitude, payload.longitude)
 
+    # Check for custom test location if patient is logged in
+    custom_lat = payload.latitude
+    custom_lng = payload.longitude
+    if payload.reported_by_user_id:
+        try:
+            patient_profile = db.query(PatientProfile).filter(
+                PatientProfile.user_id == payload.reported_by_user_id
+            ).first()
+            if patient_profile and patient_profile.custom_latitude is not None and patient_profile.custom_longitude is not None:
+                custom_lat = patient_profile.custom_latitude
+                custom_lng = patient_profile.custom_longitude
+                maps_url = _build_maps_url(custom_lat, custom_lng)
+                location_label = _build_location_label(custom_lat, custom_lng)
+                logger.info(
+                    f"[Emergency] Using custom test location for user {payload.reported_by_user_id}: "
+                    f"lat={custom_lat}, lng={custom_lng}"
+                )
+        except Exception as e:
+            logger.error(f"[Emergency] Failed to check custom location: {e}")
+
     alert = ImpactAlert(
         id                  = str(uuid.uuid4()),
         reported_by_name    = payload.reported_by_name or "CARENETRA User",
         reported_by_phone   = payload.reported_by_phone,
         reported_by_user_id = payload.reported_by_user_id,
-        latitude            = payload.latitude,
-        longitude           = payload.longitude,
-        initial_latitude    = payload.latitude,
-        initial_longitude   = payload.longitude,
+        latitude            = custom_lat,
+        longitude           = custom_lng,
+        initial_latitude    = custom_lat,
+        initial_longitude   = custom_lng,
         location_label      = location_label,
         maps_url            = maps_url,
         status              = ImpactAlertStatus.ACTIVE,
@@ -122,30 +142,30 @@ async def report_impact(
     db.add(alert)
     db.flush()
 
-    # ── Notify nearby volunteers (geodesic distance ≤ 5 km) ──────────────────
+    # ── Notify nearby ambulances (geodesic distance ≤ 5 km) ──────────────────
     cutoff = datetime.now(timezone.utc) - timedelta(minutes=5)
-    active_volunteers = db.query(VolunteerProfile).filter(
-        VolunteerProfile.is_available == True,
-        VolunteerProfile.last_active_at >= cutoff,
-        VolunteerProfile.current_latitude.isnot(None),
-        VolunteerProfile.current_longitude.isnot(None),
+    active_ambulances = db.query(AmbulanceProfile).filter(
+        AmbulanceProfile.is_available == True,
+        AmbulanceProfile.last_active_at >= cutoff,
+        AmbulanceProfile.latitude.isnot(None),
+        AmbulanceProfile.longitude.isnot(None),
     ).all()
 
     nearby = []
-    if payload.latitude and payload.longitude:
-        patient_loc = (payload.latitude, payload.longitude)
-        for v in active_volunteers:
-            if v.current_latitude and v.current_longitude:
-                dist = geodesic(patient_loc, (v.current_latitude, v.current_longitude)).km
+    if custom_lat and custom_lng:
+        patient_loc = (custom_lat, custom_lng)
+        for a in active_ambulances:
+            if a.latitude and a.longitude:
+                dist = geodesic(patient_loc, (a.latitude, a.longitude)).km
                 if dist <= 5.0:
-                    nearby.append((v, dist))
+                    nearby.append((a, dist))
         nearby.sort(key=lambda x: x[1])
     else:
-        nearby = [(v, None) for v in active_volunteers]
+        nearby = [(a, None) for a in active_ambulances]
 
     notified = 0
-    for v, dist in nearby:
-        if v.phone:
+    for a, dist in nearby:
+        if a.phone:
             dist_str = f"{dist:.1f} km away" if dist else "nearby"
             body = (
                 f"🚨 CARENETRA IMPACT ALERT\n"
@@ -155,7 +175,7 @@ async def report_impact(
                 f"Maps: {maps_url or 'unavailable'}\n"
                 f"Respond: {BACKEND_BASE_URL}/emergency/{alert.id}/live"
             )
-            background_tasks.add_task(send_sms_alert, v.phone, body)
+            background_tasks.add_task(send_sms_alert, a.phone, body)
             notified += 1
 
     # ── Notify doctor (if patient is logged in) ──────────────────────────────
@@ -169,7 +189,7 @@ async def report_impact(
             )
             background_tasks.add_task(send_sms_alert, doctor_phone, body)
 
-    alert.volunteers_notified = notified
+    alert.ambulances_notified = notified
     alert.sms_sent = notified > 0
     db.commit()
     db.refresh(alert)
@@ -180,7 +200,7 @@ async def report_impact(
         "location_label":      location_label,
         "maps_url":            maps_url,
         "static_map_url":      _build_static_map_url(payload.latitude, payload.longitude) if payload.latitude else None,
-        "volunteers_notified": notified,
+        "ambulances_notified": notified,
         "live_page_url":       f"{BACKEND_BASE_URL}/emergency/{alert.id}/live",
     }
 
@@ -201,6 +221,24 @@ async def dispatch_emergency(
     lng = payload.longitude if payload.longitude is not None else 72.8777
     maps_url = _build_maps_url(lat, lng)
     location_label = _build_location_label(lat, lng)
+
+    # Check for custom test location
+    if payload.patient_id:
+        try:
+            patient_profile = db.query(PatientProfile).filter(
+                PatientProfile.user_id == payload.patient_id
+            ).first()
+            if patient_profile and patient_profile.custom_latitude is not None and patient_profile.custom_longitude is not None:
+                lat = patient_profile.custom_latitude
+                lng = patient_profile.custom_longitude
+                maps_url = _build_maps_url(lat, lng)
+                location_label = _build_location_label(lat, lng)
+                logger.info(
+                    f"[EmergencyDispatch] Using custom test location for patient {payload.patient_id}: "
+                    f"lat={lat}, lng={lng}"
+                )
+        except Exception as e:
+            logger.error(f"[EmergencyDispatch] Failed to check custom location: {e}")
 
     patient_name = payload.patient_name or "CARENETRA Patient"
     contact_email = None
@@ -281,20 +319,20 @@ async def dispatch_emergency(
             body=email_body_text,
         )
 
-    # ── SMS to nearby volunteers & contacts ──────────────────────────────────
+    # ── SMS to nearby ambulances & contacts ──────────────────────────────────
     cutoff = datetime.now(timezone.utc) - timedelta(minutes=5)
-    active_volunteers = db.query(VolunteerProfile).filter(
-        VolunteerProfile.is_available == True,
-        VolunteerProfile.last_active_at >= cutoff,
-        VolunteerProfile.current_latitude.isnot(None),
-        VolunteerProfile.current_longitude.isnot(None),
+    active_ambulances = db.query(AmbulanceProfile).filter(
+        AmbulanceProfile.is_available == True,
+        AmbulanceProfile.last_active_at >= cutoff,
+        AmbulanceProfile.latitude.isnot(None),
+        AmbulanceProfile.longitude.isnot(None),
     ).all()
 
     notified = 0
     patient_loc = (lat, lng)
-    for v in active_volunteers:
-        if v.current_latitude and v.current_longitude and v.phone:
-            dist = geodesic(patient_loc, (v.current_latitude, v.current_longitude)).km
+    for a in active_ambulances:
+        if a.latitude and a.longitude and a.phone:
+            dist = geodesic(patient_loc, (a.latitude, a.longitude)).km
             if dist <= 10.0:
                 sms_body = (
                     f"🚨 CARENETRA RED BUTTON DISPATCH\n"
@@ -303,10 +341,10 @@ async def dispatch_emergency(
                     f"Maps: {maps_url}\n"
                     f"Live Tracker: {live_page_url}"
                 )
-                background_tasks.add_task(send_sms_alert, v.phone, sms_body)
+                background_tasks.add_task(send_sms_alert, a.phone, sms_body)
                 notified += 1
 
-    alert.volunteers_notified = notified
+    alert.ambulances_notified = notified
     alert.sms_sent = notified > 0
     db.commit()
     db.refresh(alert)
@@ -322,7 +360,7 @@ async def dispatch_emergency(
         "location_label": location_label,
         "maps_url": maps_url,
         "live_page_url": live_page_url,
-        "volunteers_notified": notified,
+        "ambulances_notified": notified,
     }
 
 # ── PATCH /emergency/{id}/location (live GPS streaming) ─────────────────────
@@ -347,10 +385,10 @@ async def update_location(
     db.commit()
     return {"ok": True, "maps_url": alert.maps_url}
 
-# ── POST /emergency/{id}/respond (volunteer claims) ─────────────────────────
+# ── POST /emergency/{id}/respond (ambulance claims) ─────────────────────────
 
 @router.post("/{alert_id}/respond")
-async def volunteer_respond(
+async def ambulance_respond(
     alert_id: str,
     payload: RespondRequest,
     background_tasks: BackgroundTasks,
@@ -361,18 +399,34 @@ async def volunteer_respond(
         raise HTTPException(status_code=404, detail="Alert not found")
     if alert.status == ImpactAlertStatus.RESOLVED:
         raise HTTPException(status_code=409, detail="Alert already resolved")
-    if alert.status == ImpactAlertStatus.RESPONDING:
-        raise HTTPException(status_code=409, detail="Another volunteer already responded")
+
+    # Release any previous responder
+    if alert.responder_ambulance_id:
+        old_responder = db.query(AmbulanceProfile).filter(
+            AmbulanceProfile.id == alert.responder_ambulance_id
+        ).first()
+        if old_responder:
+            old_responder.current_status = "available"
 
     alert.responder_name = payload.responder_name
     alert.responder_user_id = payload.responder_user_id
     alert.status = ImpactAlertStatus.RESPONDING
+    alert.responder_ambulance_id = payload.responder_user_id  # Will be updated with actual ambulance_id
     alert.responded_at = datetime.now(timezone.utc)
     db.commit()
 
+    # Update the ambulance profile status
+    ambulance = db.query(AmbulanceProfile).filter(
+        AmbulanceProfile.user_id == payload.responder_user_id
+    ).first()
+    if ambulance:
+        ambulance.current_status = "responding"
+        alert.responder_ambulance_id = ambulance.id
+        db.commit()
+
     # Optional: notify patient that someone is coming (via SMS/push)
     if alert.reported_by_phone:
-        body = f"✅ A volunteer ({payload.responder_name}) is responding to your emergency. Help is on the way."
+        body = f"✅ An ambulance ({payload.responder_name}) is responding to your emergency. Help is on the way."
         background_tasks.add_task(send_sms_alert, alert.reported_by_phone, body)
 
     return {"ok": True, "alert_id": alert_id, "live_page_url": f"{BACKEND_BASE_URL}/emergency/{alert_id}/live"}
@@ -397,14 +451,14 @@ def get_alert_status(
         "longitude":      alert.longitude,
     }
 
-# ── GET /emergency/active (for volunteer dashboard) ─────────────────────────
+# ── GET /emergency/active (for ambulance dashboard) ─────────────────────────
 
 @router.get("/active")
 def get_active_alerts(db: Session = Depends(get_db)):
     # All active and responding alerts (within the last 6 hours)
     expiry_limit = datetime.now(timezone.utc) - timedelta(hours=6)
     alerts = db.query(ImpactAlert).filter(
-        ImpactAlert.status.in_([ImpactAlertStatus.ACTIVE, ImpactAlertStatus.RESPONDING]),
+        ImpactAlert.status.in_([ImpactAlertStatus.ACTIVE, ImpactAlertStatus.RESPONDING, ImpactAlertStatus.EN_ROUTE]),
         ImpactAlert.created_at >= expiry_limit
     ).order_by(ImpactAlert.created_at.desc()).all()
     return {
@@ -480,5 +534,12 @@ def resolve_alert(alert_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Alert not found")
     alert.status = ImpactAlertStatus.RESOLVED
     alert.resolved_at = datetime.now(timezone.utc)
+    
+    # Release the ambulance if it was responding
+    if alert.responder_ambulance_id:
+        ambulance = db.query(AmbulanceProfile).filter(AmbulanceProfile.id == alert.responder_ambulance_id).first()
+        if ambulance:
+            ambulance.current_status = "available"
+    
     db.commit()
     return {"message": "Alert resolved", "alert_id": alert_id}

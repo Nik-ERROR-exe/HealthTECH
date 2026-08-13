@@ -120,7 +120,7 @@ interface PracticeStats {
   avg_risk_score: number;
   adherence_rate: number;
   recovery_rate: number;
-  volunteer_count: number;
+  ambulance_count: number;
   active_emergencies: number;
 }
 
@@ -217,7 +217,7 @@ const DoctorDashboard = () => {
   const [practiceStats, setPracticeStats] = useState<PracticeStats | null>(null);
   const [volunteerStatus, setVolunteerStatus] = useState<{ online: number; within_5km: number } | null>(null);
 
-  useEffect(() => { fetchDashboard(); fetchPracticeStats(); fetchVolunteerStatus(); }, []);
+  useEffect(() => { fetchDashboard(); fetchPracticeStats(); fetchAmbulanceStatus(); }, []);
 
   const fetchDashboard = async () => {
     const currentUser = getUser();
@@ -285,14 +285,14 @@ const DoctorDashboard = () => {
           avg_risk_score: avgRisk,
           adherence_rate: 78,
           recovery_rate: 85,
-          volunteer_count: 0,
+          ambulance_count: 0,
           active_emergencies: alerts.length,
         });
       }
     }
   };
 
-  const fetchVolunteerStatus = async () => {
+  const fetchAmbulanceStatus = async () => {
     try {
       const res = await api.get('/doctor/volunteer-status');
       setVolunteerStatus(res.data);
@@ -309,7 +309,7 @@ const DoctorDashboard = () => {
   };
 
   const handleDispatchAlert = async (alertId: string) => {
-    try { await api.post(`/doctor/confirm-dispatch/${alertId}`); setAlerts(a => a.filter(x => x.alert_id !== alertId)); toast.success('Emergency dispatch confirmed'); fetchVolunteerStatus(); } catch { toast.error('Failed to dispatch'); }
+    try { await api.post(`/doctor/confirm-dispatch/${alertId}`); setAlerts(a => a.filter(x => x.alert_id !== alertId)); toast.success('Emergency dispatch confirmed'); fetchAmbulanceStatus(); } catch { toast.error('Failed to dispatch'); }
   };
 
   const handleSendMessage = async () => {
@@ -587,7 +587,7 @@ const DoctorDashboard = () => {
             <StatCard title={t('doctorDashboard.highRisk')} value={dashData.high_risk_count} icon={Activity} color="orange" change={+8} />
             <StatCard title={t('doctorDashboard.stable')} value={dashData.stable_count} icon={TrendingUp} color="emerald" change={+12} />
             <StatCard title={t('doctorDashboard.compliance')} value={overallAdherence} icon={Pill} color="cyan" change={+3} suffix="%" />
-            <StatCard title={t('doctorDashboard.volunteersNearby')} value={volunteerStatus?.within_5km ?? 0} icon={Users} color="purple" change={0} />
+            <StatCard title={t('doctorDashboard.ambulancesNearby')} value={volunteerStatus?.within_5km ?? 0} icon={Users} color="purple" change={0} />
           </div>
 
           {/* AI Insights Bar */}

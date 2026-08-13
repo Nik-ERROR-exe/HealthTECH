@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { motion } from 'framer-motion';
-import { User, Mail, Lock, Loader2, ArrowRight, Stethoscope, Heart, Users, Eye, EyeOff, Phone, MapPin } from 'lucide-react';
+import { User, Mail, Lock, Loader2, ArrowRight, Stethoscope, Heart, Users, Eye, EyeOff, Phone, MapPin, Ambulance as AmbulanceIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import api from '@/lib/api';
@@ -13,7 +13,7 @@ interface RegisterForm {
   email: string;
   password: string;
   confirmPassword: string;
-  role: 'DOCTOR' | 'PATIENT' | 'VOLUNTEER' | 'RELATIVE';
+  role: 'DOCTOR' | 'PATIENT' | 'AMBULANCE' | 'RELATIVE';
   phone?: string;
   area_description?: string;
   patient_unique_id?: string;
@@ -23,7 +23,7 @@ interface RegisterForm {
 const ROLES = [
   { value: 'PATIENT', icon: Heart, label: 'Patient' },
   { value: 'DOCTOR', icon: Stethoscope, label: 'Doctor' },
-  { value: 'VOLUNTEER', icon: Users, label: 'Volunteer' },
+  { value: 'AMBULANCE', icon: AmbulanceIcon, label: 'Ambulance' },
   { value: 'RELATIVE', icon: Users, label: 'Relative' },
 ] as const;
 
@@ -208,16 +208,16 @@ const RegisterPage = () => {
                   </div>
                 </div>
 
-                {/* Volunteer Fields */}
+                {/* Ambulance Fields */}
                 <motion.div
                   initial={false}
-                  animate={{ height: (selectedRole === 'VOLUNTEER' || selectedRole === 'RELATIVE') ? 'auto' : 0, opacity: (selectedRole === 'VOLUNTEER' || selectedRole === 'RELATIVE') ? 1 : 0 }}
+                  animate={{ height: (selectedRole === 'AMBULANCE' || selectedRole === 'RELATIVE') ? 'auto' : 0, opacity: (selectedRole === 'AMBULANCE' || selectedRole === 'RELATIVE') ? 1 : 0 }}
                   className="overflow-hidden space-y-4"
                 >
-                  {selectedRole === 'VOLUNTEER' && (
+                  {selectedRole === 'AMBULANCE' && (
                     <>
                       <div className="space-y-2">
-                        <label className="text-sm font-medium text-foreground ml-1">{t('auth.phone')} <span className="text-muted-foreground font-normal">{t('auth.phoneDesc')}</span></label>
+                        <label className="text-sm font-medium text-foreground ml-1">{t('auth.phone')} <span className="text-muted-foreground font-normal">Ambulance contact number</span></label>
                         <div className="relative group">
                           <div className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground group-focus-within:text-primary transition-colors">
                             <Phone size={18} />
@@ -231,7 +231,7 @@ const RegisterPage = () => {
                         </div>
                       </div>
                       <div className="space-y-2">
-                        <label className="text-sm font-medium text-foreground ml-1">{t('auth.area')} <span className="text-muted-foreground font-normal">{t('auth.areaDesc')}</span></label>
+                        <label className="text-sm font-medium text-foreground ml-1">{t('auth.area')} <span className="text-muted-foreground font-normal">Hospital / Base location</span></label>
                         <div className="relative group">
                           <div className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground group-focus-within:text-primary transition-colors">
                             <MapPin size={18} />
@@ -240,7 +240,7 @@ const RegisterPage = () => {
                             {...register('area_description')}
                             type="text"
                             className="w-full bg-muted/50 border border-border rounded-xl py-3 pl-10 pr-4 outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-                            placeholder="Mumbai, India"
+                            placeholder="City Hospital, Mumbai"
                           />
                         </div>
                       </div>

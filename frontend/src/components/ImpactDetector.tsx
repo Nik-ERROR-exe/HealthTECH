@@ -317,9 +317,9 @@ const ImpactDetector = forwardRef<ImpactDetectorHandle, Props>(({
             {modalPhase === 'alerting' && (
               <div className="p-8 text-center space-y-4">
                 <Loader2 size={40} className="text-destructive mx-auto animate-spin" />
-                <h2 className="text-lg font-semibold text-foreground">Alerting nearby volunteers...</h2>
+                <h2 className="text-lg font-semibold text-foreground">Alerting nearby ambulances...</h2>
                 <p className="text-sm text-muted-foreground">
-                  Sending your location to registered volunteers and your doctor
+                  Sending your location to registered ambulances and your doctor
                 </p>
               </div>
             )}
@@ -360,8 +360,8 @@ const ImpactDetector = forwardRef<ImpactDetectorHandle, Props>(({
                 )}
 
                 {!responderName && (
-                  <p className="text-xs text-muted-foreground animate-pulse">
-                    Waiting for a volunteer to respond...
+                    <p className="text-xs text-muted-foreground animate-pulse">
+                    Waiting for an ambulance to respond...
                   </p>
                 )}
 

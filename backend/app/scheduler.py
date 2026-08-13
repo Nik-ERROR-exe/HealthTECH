@@ -20,6 +20,7 @@ from app.database import SessionLocal
 from app.models.models import (
     MonitoringSchedule, PatientProfile, AgentSession,
     User, MedicalCourse, Alert, AlertType, AlertStatus,
+    ImpactAlert, ImpactAlertStatus, AmbulanceProfile,
 )
 from services.alert_service import send_email_alert, send_sms_alert
 from app.nodes.nurse_agent import start_nurse_session
@@ -216,6 +217,152 @@ async def check_overdue_patients():
         db.close()
 
 
+async def check_ambulance_timeouts():
+    """
+    Runs every 10 seconds.
+    Finds RESPONDING alerts where the 2-minute window has expired.
+    Checks if ambulance has moved >= 50m (GPS stuck detection).
+    If stuck (moved < 50m after 2 min):
+        - Resets alert back to ACTIVE so other ambulances can bid.
+        - Broadcasts AMBULANCE_STUCK_TIMEOUT to all ambulances.
+        - Sends YOU_ARE_STUCK notification to the stuck ambulance.
+    If moving (moved >= 50m):
+        - Auto-marks alert as EN_ROUTE since ambulance is en route.
+        - Broadcasts ALERT_EN_ROUTE to all ambulances.
+    """
+    logger.info("[Scheduler] Checking ambulance response timeouts...")
+    now = datetime.now(timezone.utc)
+
+    db: Session = SessionLocal()
+    try:
+        from app.websocket_manager import manager as ws_manager
+
+        # Fetch all alerts currently in RESPONDING status
+        responding_alerts = db.query(ImpactAlert).filter(
+            ImpactAlert.status == ImpactAlertStatus.RESPONDING,
+            ImpactAlert.responded_at != None,
+        ).all()
+
+        if not responding_alerts:
+            logger.info("[Scheduler] No active responding alerts found")
+            return
+
+        for alert in responding_alerts:
+            responded_at = alert.responded_at
+            if responded_at.tzinfo is None:
+                responded_at = responded_at.replace(tzinfo=timezone.utc)
+
+            elapsed_seconds = (now - responded_at).total_seconds()
+            logger.info(
+                f"[Scheduler] Alert {alert.id}: responder={alert.responder_name}, elapsed={elapsed_seconds:.1f}s"
+            )
+
+            # Check if 2-minute window has passed
+            if elapsed_seconds < 120:
+                continue
+
+            ambulance = db.query(AmbulanceProfile).filter(
+                AmbulanceProfile.id == alert.responder_ambulance_id
+            ).first()
+
+            if not ambulance:
+                logger.warning(f"[Scheduler] Ambulance {alert.responder_ambulance_id} not found, resetting alert")
+                alert.status = ImpactAlertStatus.ACTIVE
+                alert.responder_ambulance_id = None
+                alert.responder_user_id = None
+                alert.responder_name = None
+                alert.responded_at = None
+                db.commit()
+                await ws_manager.broadcast({
+                    "type": "ALERT_REOPENED",
+                    "alert_id": alert.id,
+                    "message": "Alert reopened for bidding."
+                })
+                continue
+
+            # GPS stuck detection: check if ambulance moved >= 50 meters
+            stuck = True
+            distance_moved = 0.0
+            if (
+                ambulance.latitude is not None and ambulance.longitude is not None and
+                alert.responder_latitude is not None and alert.responder_longitude is not None
+            ):
+                from geopy.distance import geodesic
+                distance_moved = geodesic(
+                    (alert.responder_latitude, alert.responder_longitude),
+                    (ambulance.latitude, ambulance.longitude)
+                ).meters
+                stuck = distance_moved < 50.0  # Less than 50 meters = stuck
+
+                logger.info(
+                    f"[Scheduler] Ambulance {ambulance.ambulance_name} moved {distance_moved:.1f}m "
+                    f"from initial position ({alert.responder_latitude}, {alert.responder_longitude})"
+                )
+
+            if stuck:
+                stuck_name = alert.responder_name or ambulance.ambulance_name or "Ambulance"
+                stuck_user_id = ambulance.user_id
+                stuck_amb_id = ambulance.id
+
+                logger.info(
+                    f"[Scheduler] TIMEOUT - Ambulance {stuck_name} is stuck "
+                    f"(moved {distance_moved:.1f}m < 50m in 2 minutes). Reopening bidding!"
+                )
+
+                # Reset alert status to ACTIVE
+                alert.status = ImpactAlertStatus.ACTIVE
+                alert.responder_ambulance_id = None
+                alert.responder_user_id = None
+                alert.responder_name = None
+                alert.responded_at = None
+                alert.responder_latitude = None
+                alert.responder_longitude = None
+                ambulance.current_status = "available"
+                db.commit()
+
+                # 1. Broadcast to ALL ambulances: Ambulance X is not moving forward.
+                await ws_manager.broadcast({
+                    "type": "AMBULANCE_STUCK_TIMEOUT",
+                    "alert_id": alert.id,
+                    "stuck_ambulance_id": stuck_amb_id,
+                    "stuck_ambulance_name": stuck_name,
+                    "message": f"Ambulance {stuck_name} is not moving forward.",
+                    "maps_url": alert.maps_url,
+                    "latitude": alert.latitude,
+                    "longitude": alert.longitude,
+                })
+
+                # 2. Targeted alert to the stuck ambulance
+                if stuck_user_id:
+                    await ws_manager.send_personal_message({
+                        "type": "YOU_ARE_STUCK",
+                        "alert_id": alert.id,
+                        "message": "You are not moving forward. Others will try to reach.",
+                        "maps_url": alert.maps_url,
+                    }, stuck_user_id)
+            else:
+                # Ambulance moved forward >= 50m -> Auto mark as EN_ROUTE!
+                logger.info(
+                    f"[Scheduler] Ambulance {ambulance.ambulance_name} is moving forward ({distance_moved:.1f}m) -> Marking EN ROUTE"
+                )
+                alert.status = ImpactAlertStatus.EN_ROUTE
+                ambulance.current_status = "en_route"
+                db.commit()
+
+                await ws_manager.broadcast({
+                    "type": "ALERT_EN_ROUTE",
+                    "alert_id": alert.id,
+                    "responder_name": ambulance.driver_name or ambulance.ambulance_name,
+                    "message": f"Ambulance {ambulance.ambulance_name} is moving forward and en route."
+                })
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"[Scheduler] Error checking ambulance timeouts: {e}")
+    finally:
+        db.close()
+
+
 def start_scheduler():
     scheduler.add_job(
         check_overdue_patients,
@@ -224,8 +371,15 @@ def start_scheduler():
         name     = "Check overdue patient check-ins",
         replace_existing = True,
     )
+    scheduler.add_job(
+        check_ambulance_timeouts,
+        trigger  = IntervalTrigger(seconds=10),
+        id       = "ambulance_timeout_check",
+        name     = "Check expired ambulance response timeouts",
+        replace_existing = True,
+    )
     scheduler.start()
-    logger.info("[Scheduler] Background scheduler started — checking every 1 minute")
+    logger.info("[Scheduler] Background scheduler started — checking timeouts every 10 seconds")
 
 
 def stop_scheduler():

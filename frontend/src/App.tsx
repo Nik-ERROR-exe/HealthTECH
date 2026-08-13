@@ -14,7 +14,7 @@ const PatientDashboard = lazy(() => import('./pages/PatientDashboard'));
 const DoctorDashboard = lazy(() => import('./pages/DoctorDashboard'));
 const CreateCourse = lazy(() => import('./pages/CreateCourse'));
 const ProfilePage = lazy(() => import('./pages/ProfilePage'));
-const VolunteerDashboard = lazy(() => import('./pages/VolunteerDashboard'));
+const AmbulanceDashboard = lazy(() => import('./pages/AmbulanceDashboard'));
 const CheckinPage = lazy(() => import('./pages/CheckinPage'));
 const RelativeDashboard = lazy(() => import('./pages/RelativeDashboard'));
 const NotFound = lazy(() => import('./pages/NotFound'));
@@ -40,10 +40,10 @@ const App = () => (
             <Route path="/doctor/create-course" element={<ProtectedRoute requiredRole="DOCTOR"><CreateCourse /></ProtectedRoute>} />
             <Route path="/doctor/profile" element={<ProtectedRoute requiredRole="DOCTOR"><ProfilePage /></ProtectedRoute>} />
             <Route
-              path="/volunteer/dashboard"
+              path="/ambulance/dashboard"
               element={
-                <ProtectedRoute requiredRole="VOLUNTEER">
-                  <VolunteerDashboard />
+                <ProtectedRoute requiredRole="AMBULANCE">
+                  <AmbulanceDashboard />
                 </ProtectedRoute>
               }
             />

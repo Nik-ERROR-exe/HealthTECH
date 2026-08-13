@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models.models import User, PatientProfile, DoctorProfile, UserRole, generate_unique_uid, RelativeProfile
+from app.models.models import User, PatientProfile, DoctorProfile, UserRole, generate_unique_uid, RelativeProfile, AmbulanceProfile
 from app.schemas.auth import RegisterRequest, LoginRequest, TokenResponse, RegisterResponse, UserMeResponse
 from app.schemas.relative import RelativeRegisterRequest, RelativeLoginRequest, RelativeLoginResponse, RelativeResponse
 from app.core.security import hash_password, verify_password, create_access_token
@@ -47,9 +47,9 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
     elif payload.role == UserRole.DOCTOR:
         profile = DoctorProfile(user_id=user.id)
         db.add(profile)
-    elif payload.role == UserRole.VOLUNTEER:
-        from app.models.models import VolunteerProfile
-        db.add(VolunteerProfile(
+    elif payload.role == UserRole.AMBULANCE:
+        from app.models.models import AmbulanceProfile
+        db.add(AmbulanceProfile(
             user_id=user.id,
             phone=payload.phone,
             area_description=payload.area_description,

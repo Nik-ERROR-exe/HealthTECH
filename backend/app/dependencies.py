@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.core.security import decode_access_token
-from app.models.models import User, UserRole, PatientProfile
+from app.models.models import User, UserRole, PatientProfile, AmbulanceProfile
 
 security = HTTPBearer()
 
@@ -57,6 +57,15 @@ def require_relative(current_user: User = Depends(get_current_user)) -> User:
     if current_user.role != UserRole.RELATIVE:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Relatives only")
     return current_user
+
+
+def require_ambulance(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> AmbulanceProfile:
+    if current_user.role != UserRole.AMBULANCE:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Ambulances only")
+    profile = db.query(AmbulanceProfile).filter(AmbulanceProfile.user_id == current_user.id).first()
+    if not profile:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ambulance profile not found")
+    return profile
 
 
 def get_current_patient(

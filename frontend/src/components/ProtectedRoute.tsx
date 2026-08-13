@@ -3,7 +3,7 @@ import { isAuthenticated, getUser, getDashboardPath } from '@/lib/auth';
 
 interface Props {
   children: React.ReactNode;
-  requiredRole?: 'DOCTOR' | 'PATIENT' | 'VOLUNTEER' | 'RELATIVE';
+  requiredRole?: 'DOCTOR' | 'PATIENT' | 'VOLUNTEER' | 'RELATIVE' | 'AMBULANCE';
 }
 
 const ProtectedRoute = ({ children, requiredRole }: Props) => {

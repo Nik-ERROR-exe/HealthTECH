@@ -20,15 +20,15 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// ── NEW: Role‑based blocking of volunteer APIs for patient accounts ──
+// ── Role‑based blocking of ambulance APIs for non‑ambulance accounts ──
 api.interceptors.request.use((config) => {
   const userStr = localStorage.getItem('carenetra_user');
   if (userStr) {
     try {
       const user = JSON.parse(userStr);
-      // If URL is for volunteer and logged‑in user is NOT a volunteer, block the request
-      if (config.url?.includes('/volunteer/') && user.role !== 'VOLUNTEER') {
-        return Promise.reject(new Error('Unauthorized: patient cannot access volunteer endpoints'));
+      // If URL is for ambulance and logged‑in user is NOT an ambulance, block the request
+      if (config.url?.includes('/ambulance/') && user.role !== 'AMBULANCE') {
+        return Promise.reject(new Error('Unauthorized: only ambulances can access ambulance endpoints'));
       }
     } catch (e) {
       // ignore JSON parse errors

@@ -17,7 +17,7 @@ from app.models.models import (
     MedicalCourse, Medication, CheckIn,
     RiskScore, WoundAnalysis, Alert,
     DoctorMessage, AgentSession, MonitoringSchedule,
-    RelativeProfile,
+    RelativeProfile, AmbulanceProfile,
 )
 
 # Routers
@@ -26,13 +26,24 @@ from app.routers.patient import router as patient_router
 from app.routers.doctor import router as doctor_router
 from app.routers.conversation import router as conversation_router
 from app.routers.emergency import router as emergency_router
-from app.routers.volunteer import router as volunteer_router
+from app.routers.ambulance import router as ambulance_router
 from app.routers.relative import router as relative_router
 # from app.routers.agent import router as agent_router
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Ensure database schema has updated columns and enum values
+    try:
+        from sqlalchemy import text
+        with engine.connect() as conn:
+            conn.execute(text("ALTER TABLE impact_alerts ADD COLUMN IF NOT EXISTS responder_latitude FLOAT;"))
+            conn.execute(text("ALTER TABLE impact_alerts ADD COLUMN IF NOT EXISTS responder_longitude FLOAT;"))
+            conn.execute(text("ALTER TYPE impactalertstatus ADD VALUE IF NOT EXISTS 'EN_ROUTE';"))
+            conn.commit()
+    except Exception as exc:
+        logger.warning(f"[DB] Migration check skipped: {exc}")
+
     # Start the proactive monitoring scheduler (guarded against uvicorn --reload double-start).
     from app.scheduler import scheduler, start_scheduler
     if not scheduler.running:
@@ -93,9 +104,25 @@ def create_app() -> FastAPI:
     app.include_router(doctor_router, prefix="/api")
     app.include_router(conversation_router, prefix="/api")
     app.include_router(emergency_router, prefix="/api")
-    app.include_router(volunteer_router, prefix="/api")
+    app.include_router(ambulance_router, prefix="/api")
     app.include_router(relative_router, prefix="/api")
     # app.include_router(agent_router, prefix="/api")
+
+    # ── WebSocket for Ambulance Alerts & Real-time Location Bidding ──
+    from fastapi import WebSocket, WebSocketDisconnect
+    from app.websocket_manager import manager as ws_manager
+
+    @app.websocket("/ws/ambulance/{client_id}")
+    @app.websocket("/ws/ambulance")
+    async def websocket_ambulance_endpoint(websocket: WebSocket, client_id: str = "anonymous"):
+        await ws_manager.connect(websocket, client_id)
+        try:
+            while True:
+                await websocket.receive_text()
+        except WebSocketDisconnect:
+            ws_manager.disconnect(client_id)
+        except Exception:
+            ws_manager.disconnect(client_id)
 
     # ── Health check ──
     @app.get("/health", tags=["Health"])

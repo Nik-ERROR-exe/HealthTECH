@@ -989,10 +989,10 @@ def get_nearby_volunteers(
     current_user: User    = Depends(require_patient),
     db:           Session = Depends(get_db),
 ):
-    from app.models.models import VolunteerProfile
+    from app.models.models import AmbulanceProfile
     try:
-        count = db.query(VolunteerProfile).filter(
-            VolunteerProfile.is_available == True
+        count = db.query(AmbulanceProfile).filter(
+            AmbulanceProfile.is_available == True
         ).count()
     except Exception:
         count = 0
@@ -1012,11 +1012,95 @@ async def dispatch_patient_emergency(
 ):
     from app.routers.emergency import dispatch_emergency, DispatchRequest
     patient_id = payload.get("patient_id")
+    
+    # Check for custom test location first
+    profile = _get_patient_profile(current_user, db)
+    lat = payload.get("latitude", 19.0760)
+    lng = payload.get("longitude", 72.8777)
+    if profile.custom_latitude is not None and profile.custom_longitude is not None:
+        lat = profile.custom_latitude
+        lng = profile.custom_longitude
+    
     req = DispatchRequest(
         patient_id   = patient_id,
-        latitude     = payload.get("latitude", 19.0760),
-        longitude    = payload.get("longitude", 72.8777),
+        latitude     = lat,
+        longitude    = lng,
         trigger_type = payload.get("trigger_type", "RED_BUTTON_CLICK"),
         patient_name = payload.get("patient_name"),
     )
     return await dispatch_emergency(req, background_tasks, db)
+
+
+# ────────────────────────────────────────────
+# PUT /api/patient/custom-location
+# Test-only: allows nidhi33@gmail.com to override patient location
+# ────────────────────────────────────────────
+
+@router.put("/custom-location")
+def set_custom_location(
+    payload: dict,
+    current_user: User    = Depends(require_patient),
+    db:           Session = Depends(get_db),
+):
+    TEST_EMAIL = "nidhi33@gmail.com"
+    if current_user.email != TEST_EMAIL:
+        raise HTTPException(
+            status_code=403,
+            detail="Custom location feature is restricted to test accounts only."
+        )
+
+    profile = _get_patient_profile(current_user, db)
+    latitude = payload.get("latitude")
+    longitude = payload.get("longitude")
+
+    if latitude is None or longitude is None:
+        raise HTTPException(status_code=400, detail="latitude and longitude are required")
+
+    try:
+        lat_f = float(latitude)
+        lng_f = float(longitude)
+        if not (-90 <= lat_f <= 90) or not (-180 <= lng_f <= 180):
+            raise ValueError("out of range")
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid latitude/longitude values")
+
+    profile.custom_latitude = lat_f
+    profile.custom_longitude = lng_f
+    db.commit()
+    db.refresh(profile)
+
+    logger.info(
+        f"[TestLocation] Patient {current_user.email} set custom location "
+        f"lat={lat_f}, lng={lng_f}"
+    )
+
+    return {
+        "message": "Custom location saved",
+        "latitude": profile.custom_latitude,
+        "longitude": profile.custom_longitude,
+    }
+
+
+@router.delete("/custom-location")
+def clear_custom_location(
+    current_user: User    = Depends(require_patient),
+    db:           Session = Depends(get_db),
+):
+    TEST_EMAIL = "nidhi33@gmail.com"
+    if current_user.email != TEST_EMAIL:
+        raise HTTPException(
+            status_code=403,
+            detail="Custom location feature is restricted to test accounts only."
+        )
+
+    profile = _get_patient_profile(current_user, db)
+    profile.custom_latitude = None
+    profile.custom_longitude = None
+    db.commit()
+    db.refresh(profile)
+
+    logger.info(
+        f"[TestLocation] Patient {current_user.email} cleared custom location"
+    )
+
+    return {"message": "Custom location cleared"}

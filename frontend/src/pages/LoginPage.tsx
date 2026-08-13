@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Mail, Lock, Loader2, ArrowRight, Eye, EyeOff, Heart, Stethoscope, Users } from 'lucide-react';
+import { Mail, Lock, Loader2, ArrowRight, Eye, EyeOff, Heart, Stethoscope, Users, Ambulance as AmbulanceIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import api from '@/lib/api';
@@ -12,7 +12,7 @@ const LoginPage = () => {
   const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
   const [showPass, setShowPass] = useState(false);
-  const [role, setRole] = useState<'PATIENT' | 'DOCTOR' | 'VOLUNTEER' | 'RELATIVE'>('PATIENT');
+  const [role, setRole] = useState<'PATIENT' | 'DOCTOR' | 'AMBULANCE' | 'RELATIVE'>('PATIENT');
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -46,7 +46,7 @@ const LoginPage = () => {
       toast.success(t('auth.loginSuccess'));
       
       if (data.role === 'DOCTOR') navigate('/doctor/dashboard');
-      else if (data.role === 'VOLUNTEER') navigate('/volunteer/dashboard');
+      else if (data.role === 'AMBULANCE') navigate('/ambulance/dashboard');
       else if (data.role === 'RELATIVE') navigate('/relative/dashboard');
       else navigate('/patient/dashboard');
     } catch (err: any) {
@@ -89,7 +89,7 @@ const LoginPage = () => {
   const roles = [
     { value: 'PATIENT' as const, icon: Heart, label: 'Patient' },
     { value: 'DOCTOR' as const, icon: Stethoscope, label: 'Doctor' },
-    { value: 'VOLUNTEER' as const, icon: Users, label: 'Volunteer' },
+    { value: 'AMBULANCE' as const, icon: AmbulanceIcon, label: 'Ambulance' },
     { value: 'RELATIVE' as const, icon: Users, label: 'Relative' },
   ];
 

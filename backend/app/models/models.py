@@ -25,7 +25,7 @@ from app.database import Base
 class UserRole(str, PyEnum):
     PATIENT   = "PATIENT"
     DOCTOR    = "DOCTOR"
-    VOLUNTEER = "VOLUNTEER"
+    AMBULANCE = "AMBULANCE"
     RELATIVE  = "RELATIVE"
 
 
@@ -79,8 +79,9 @@ class WoundSeverity(str, PyEnum):
 
 
 class ImpactAlertStatus(str, PyEnum):
-    ACTIVE     = "ACTIVE"      # alert fired, no volunteer yet
-    RESPONDING = "RESPONDING"  # a volunteer confirmed they're going
+    ACTIVE     = "ACTIVE"      # alert fired, no ambulance yet
+    RESPONDING = "RESPONDING"  # an ambulance confirmed they're going
+    EN_ROUTE   = "EN_ROUTE"    # ambulance marked as on the way
     RESOLVED   = "RESOLVED"    # manually resolved or patient confirmed okay
 
 
@@ -139,8 +140,8 @@ class User(Base):
     doctor_profile: Mapped["DoctorProfile"] = relationship(
         "DoctorProfile", back_populates="user", uselist=False, cascade="all, delete-orphan"
     )
-    volunteer_profile: Mapped["VolunteerProfile"] = relationship(
-        "VolunteerProfile", back_populates="user", uselist=False, cascade="all, delete-orphan"
+    ambulance_profile: Mapped["AmbulanceProfile"] = relationship(
+        "AmbulanceProfile", back_populates="user", uselist=False, cascade="all, delete-orphan"
     )
     relative_profile: Mapped["RelativeProfile"] = relationship(
         "RelativeProfile", back_populates="user", uselist=False, cascade="all, delete-orphan"
@@ -175,6 +176,9 @@ class PatientProfile(Base):
     # Episodic non-medical memory injected into the next check-in's Nurse prompt.
     # {"family": "...", "pets": "...", "last_updated": "..."}
     social_memory: Mapped[dict] = mapped_column(JSON, nullable=True, default=dict)
+    # Test-only custom location override for ambulance testing
+    custom_latitude: Mapped[float] = mapped_column(Float, nullable=True)
+    custom_longitude: Mapped[float] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
@@ -242,12 +246,12 @@ class DoctorProfile(Base):
 
 
 # ─────────────────────────────────────────────
-# TABLE 3.5: volunteer_profiles
-# Extended volunteer info beyond auth.
+# TABLE 3.5: ambulances
+# Extended ambulance info beyond auth.
 # ─────────────────────────────────────────────
 
-class VolunteerProfile(Base):
-    __tablename__ = "volunteer_profiles"
+class AmbulanceProfile(Base):
+    __tablename__ = "ambulances"
 
     id: Mapped[str] = mapped_column(
         UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4())
@@ -255,21 +259,25 @@ class VolunteerProfile(Base):
     user_id: Mapped[str] = mapped_column(
         UUID(as_uuid=False), ForeignKey("users.id", ondelete="CASCADE"), unique=True
     )
+    ambulance_name: Mapped[str] = mapped_column(String(255), nullable=True)  # e.g. "City Hospital Ambulance 1"
+    driver_name: Mapped[str] = mapped_column(String(255), nullable=True)
     phone: Mapped[str] = mapped_column(String(30), nullable=True)
-    area_description: Mapped[str] = mapped_column(String(255), nullable=True)  # "Andheri West, Mumbai"
+    hospital_name: Mapped[str] = mapped_column(String(255), nullable=True)
+    area_description: Mapped[str] = mapped_column(String(255), nullable=True)  # base location / area
+    latitude: Mapped[float] = mapped_column(Float, nullable=True)
+    longitude: Mapped[float] = mapped_column(Float, nullable=True)
     is_available: Mapped[bool] = mapped_column(Boolean, default=True)
-    current_latitude:  Mapped[float] = mapped_column(Float, nullable=True)
-    current_longitude: Mapped[float] = mapped_column(Float, nullable=True)
-    last_active_at:    Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
+    current_status: Mapped[str] = mapped_column(String(50), default="available")  # available | responding | en_route | unavailable
+    last_active_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
 
     # Relationships
-    user: Mapped["User"] = relationship("User", back_populates="volunteer_profile")
+    user: Mapped["User"] = relationship("User", back_populates="ambulance_profile")
     responses: Mapped[list["ImpactAlert"]] = relationship(
-        "ImpactAlert", back_populates="responder", foreign_keys="ImpactAlert.responder_volunteer_id"
+        "ImpactAlert", back_populates="responder", foreign_keys="ImpactAlert.responder_ambulance_id"
     )
 
 
@@ -303,7 +311,7 @@ class RelativeProfile(Base):
 
 # ─────────────────────────────────────────────
 # TABLE 3.8: impact_alerts
-# Crash/impact alerts reported by patients, responded to by volunteers.
+# Crash/impact alerts reported by patients, responded to by ambulances.
 # ─────────────────────────────────────────────
 
 class ImpactAlert(Base):
@@ -333,27 +341,29 @@ class ImpactAlert(Base):
         Enum(ImpactAlertStatus), default=ImpactAlertStatus.ACTIVE
     )
 
-    # Volunteer who responded
-    responder_volunteer_id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False), ForeignKey("volunteer_profiles.id", ondelete="SET NULL"), nullable=True
+    # Ambulance who responded
+    responder_ambulance_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("ambulances.id", ondelete="SET NULL"), nullable=True
     )
     responder_user_id: Mapped[str] = mapped_column(
         UUID(as_uuid=False), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     responder_name:  Mapped[str]      = mapped_column(String(255), nullable=True)
+    responder_latitude: Mapped[float] = mapped_column(Float, nullable=True)
+    responder_longitude: Mapped[float] = mapped_column(Float, nullable=True)
     responded_at:    Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
     resolved_at:     Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Notification tracking
-    volunteers_notified: Mapped[int]  = mapped_column(Integer, default=0)
+    ambulances_notified: Mapped[int]  = mapped_column(Integer, default=0)
     sms_sent:            Mapped[bool] = mapped_column(Boolean, default=False)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
-    responder: Mapped["VolunteerProfile"] = relationship(
-        "VolunteerProfile", back_populates="responses",
-        foreign_keys=[responder_volunteer_id]
+    responder: Mapped["AmbulanceProfile"] = relationship(
+        "AmbulanceProfile", back_populates="responses",
+        foreign_keys=[responder_ambulance_id]
     )
 
 
