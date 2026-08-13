@@ -23,7 +23,14 @@ const CheckinPage = lazy(() => import('./pages/CheckinPage'));
 const RelativeDashboard = lazy(() => import('./pages/RelativeDashboard'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 
+import useKeepAlive from '@/hooks/useKeepAlive';
+
 const queryClient = new QueryClient();
+
+const KeepAliveWatcher = () => {
+  useKeepAlive(270_000);
+  return null;
+};
 
 const PendingCheckinWatcher = () => {
   const { pendingCheckin, consumePending } = usePendingCheckin(5000);
@@ -58,6 +65,7 @@ const App = () => (
       <CheckinProvider>
         <Sonner />
         <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+          <KeepAliveWatcher />
           <PendingCheckinWatcher />
           <Suspense fallback={<DashboardSkeleton />}>
             <Routes>
@@ -72,23 +80,12 @@ const App = () => (
               <Route path="/doctor/patient/:id" element={<ProtectedRoute requiredRole="DOCTOR"><DoctorDashboard /></ProtectedRoute>} />
               <Route path="/doctor/create-course" element={<ProtectedRoute requiredRole="DOCTOR"><CreateCourse /></ProtectedRoute>} />
               <Route path="/doctor/profile" element={<ProtectedRoute requiredRole="DOCTOR"><ProfilePage /></ProtectedRoute>} />
-              <Route
-                path="/ambulance/dashboard"
-                element={
-                  <ProtectedRoute requiredRole="AMBULANCE">
-                    <AmbulanceDashboard />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/volunteer/dashboard"
-                element={
-                  <ProtectedRoute requiredRole="VOLUNTEER">
-                    <VolunteerDashboard />
-                  </ProtectedRoute>
-                }
-              />
+              <Route path="/ambulance/dashboard" element={<ProtectedRoute requiredRole="AMBULANCE"><AmbulanceDashboard /></ProtectedRoute>} />
+              <Route path="/ambulance/profile" element={<ProtectedRoute requiredRole="AMBULANCE"><ProfilePage /></ProtectedRoute>} />
+              <Route path="/volunteer/dashboard" element={<ProtectedRoute requiredRole="VOLUNTEER"><VolunteerDashboard /></ProtectedRoute>} />
+              <Route path="/volunteer/profile" element={<ProtectedRoute requiredRole="VOLUNTEER"><ProfilePage /></ProtectedRoute>} />
               <Route path="/relative/dashboard" element={<ProtectedRoute requiredRole="RELATIVE"><RelativeDashboard /></ProtectedRoute>} />
+              <Route path="/relative/profile" element={<ProtectedRoute requiredRole="RELATIVE"><ProfilePage /></ProtectedRoute>} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </Suspense>

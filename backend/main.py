@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 import os
 import logging
+from datetime import datetime, timezone
 
 from app.config import settings
 from app.database import engine, Base
@@ -33,7 +34,6 @@ from app.routers.relative import router as relative_router
 from app.routers.checkin import router as checkin_router
 from app.routers.image import router as image_router
 from app.routers.alerts import router as alerts_router
-# from app.routers.agent import router as agent_router
 
 
 @asynccontextmanager
@@ -130,7 +130,6 @@ def create_app() -> FastAPI:
     app.include_router(checkin_router, prefix="/api")
     app.include_router(image_router, prefix="/api")
     app.include_router(alerts_router, prefix="/api")
-    # app.include_router(agent_router, prefix="/api")
 
     # ── WebSocket for Ambulance Alerts & Real-time Location Bidding ──
     from app.websocket_manager import manager as ws_manager
@@ -147,10 +146,17 @@ def create_app() -> FastAPI:
         except Exception:
             ws_manager.disconnect(client_id)
 
-    # ── Health check ──
+    # ── Health check & keep-alive ──
     @app.get("/health", tags=["Health"])
+    @app.get("/ping", tags=["Health"])
+    @app.get("/api/health", tags=["Health"])
+    @app.get("/api/ping", tags=["Health"])
     def health():
-        return {"status": "ok", "service": "CARENETRA API"}
+        return {
+            "status": "ok",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "service": "CARENETRA API",
+        }
 
     return app
 

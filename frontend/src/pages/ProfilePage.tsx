@@ -15,13 +15,25 @@ const fadeUp = {
 
 const ProfilePage = () => {
   const user = getUser();
-  const isPatient = user?.role === 'PATIENT';
+  const role = user?.role?.toUpperCase() || 'PATIENT';
+  const isPatient = role === 'PATIENT';
+  const isAmbulance = role === 'AMBULANCE';
+  const isVolunteer = role === 'VOLUNTEER';
+  const isDoctor = role === 'DOCTOR';
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { register, handleSubmit, reset, watch } = useForm();
+  const { register, handleSubmit, reset } = useForm();
+
+  const getProfileEndpoint = () => {
+    if (isPatient) return '/patient/profile';
+    if (isDoctor) return '/doctor/profile';
+    if (isAmbulance) return '/ambulance/profile';
+    if (isVolunteer) return '/volunteer/profile';
+    return '/relative/profile';
+  };
 
   // Lenis smooth scroll
   useEffect(() => {
@@ -43,7 +55,7 @@ const ProfilePage = () => {
 
   const fetchProfile = async () => {
     try {
-      const endpoint = isPatient ? '/patient/profile' : '/doctor/profile';
+      const endpoint = getProfileEndpoint();
       const res = await api.get(endpoint);
       const d = res.data;
 
@@ -51,18 +63,34 @@ const ProfilePage = () => {
 
       if (isPatient) {
         reset({
-          name: d.full_name || '',
-          email: d.email || '',
+          name: d.full_name || user?.name || '',
+          email: d.email || user?.email || '',
           date_of_birth: d.date_of_birth || '',
           blood_group: d.blood_group || '',
           emergency_contact_name: d.emergency_contact_name || '',
           emergency_contact_phone: d.emergency_contact_phone || '',
           emergency_contact_email: d.emergency_contact_email || '',
         });
+      } else if (isAmbulance) {
+        reset({
+          name: d.full_name || user?.name || '',
+          email: d.email || user?.email || '',
+          ambulance_name: d.ambulance_name || '',
+          driver_name: d.driver_name || '',
+          hospital_name: d.hospital_name || '',
+          phone: d.phone || '',
+        });
+      } else if (isVolunteer) {
+        reset({
+          name: d.full_name || user?.name || '',
+          email: d.email || user?.email || '',
+          phone: d.phone || '',
+          area_description: d.area_description || '',
+        });
       } else {
         reset({
-          name: d.full_name || '',
-          email: d.email || '',
+          name: d.full_name || user?.name || '',
+          email: d.email || user?.email || '',
           specialization: d.specialization || '',
           hospital_name: d.hospital_name || '',
           medical_license_number: d.medical_license_number || '',
@@ -96,7 +124,6 @@ const ProfilePage = () => {
       toast.success('Profile photo updated!');
     } catch (err: any) {
       toast.error(err.response?.data?.detail || 'Failed to upload photo');
-      // Revert preview on error
       fetchProfile();
     } finally {
       setUploadingAvatar(false);
@@ -107,7 +134,7 @@ const ProfilePage = () => {
   const onSubmit = async (data: any) => {
     setSaving(true);
     try {
-      const endpoint = isPatient ? '/patient/profile' : '/doctor/profile';
+      const endpoint = getProfileEndpoint();
 
       if (isPatient) {
         await api.put(endpoint, {
@@ -117,7 +144,14 @@ const ProfilePage = () => {
           emergency_contact_phone: data.emergency_contact_phone || null,
           emergency_contact_email: data.emergency_contact_email || null,
         });
-      } else {
+      } else if (isAmbulance) {
+        await api.put(endpoint, {
+          ambulance_name: data.ambulance_name || null,
+          driver_name: data.driver_name || null,
+          hospital_name: data.hospital_name || null,
+          phone: data.phone || null,
+        });
+      } else if (isDoctor) {
         await api.put(endpoint, {
           specialization: data.specialization || null,
           hospital_name: data.hospital_name || null,
@@ -241,6 +275,54 @@ const ProfilePage = () => {
                 <div>
                   <label className="text-sm font-medium text-foreground mb-1.5 block">Email</label>
                   <input {...register('emergency_contact_email')} type="email" placeholder="contact@email.com" className="w-full px-4 py-2.5 rounded-xl bg-muted/50 border border-border text-foreground text-sm placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-ring/30 transition-shadow" />
+                </div>
+              </div>
+            </>
+          ) : isAmbulance ? (
+            <>
+              <div className="grid sm:grid-cols-2 gap-5">
+                <div>
+                  <label className="text-sm font-medium text-foreground mb-1.5 flex items-center gap-1.5">
+                    <Building size={14} className="text-muted-foreground" /> Ambulance Vehicle Name
+                  </label>
+                  <input {...register('ambulance_name')} placeholder="e.g. City Hospital Ambulance 1" className="w-full px-4 py-2.5 rounded-xl bg-muted/50 border border-border text-foreground text-sm placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-ring/30 transition-shadow" />
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-foreground mb-1.5 flex items-center gap-1.5">
+                    <User size={14} className="text-muted-foreground" /> Driver Name
+                  </label>
+                  <input {...register('driver_name')} placeholder="Driver full name" className="w-full px-4 py-2.5 rounded-xl bg-muted/50 border border-border text-foreground text-sm placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-ring/30 transition-shadow" />
+                </div>
+              </div>
+              <div className="grid sm:grid-cols-2 gap-5">
+                <div>
+                  <label className="text-sm font-medium text-foreground mb-1.5 flex items-center gap-1.5">
+                    <Building size={14} className="text-muted-foreground" /> Hospital / Station Name
+                  </label>
+                  <input {...register('hospital_name')} placeholder="Hospital affiliation" className="w-full px-4 py-2.5 rounded-xl bg-muted/50 border border-border text-foreground text-sm placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-ring/30 transition-shadow" />
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-foreground mb-1.5 flex items-center gap-1.5">
+                    <Phone size={14} className="text-muted-foreground" /> Contact Phone
+                  </label>
+                  <input {...register('phone')} placeholder="+1 555-0199" className="w-full px-4 py-2.5 rounded-xl bg-muted/50 border border-border text-foreground text-sm placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-ring/30 transition-shadow" />
+                </div>
+              </div>
+            </>
+          ) : isVolunteer ? (
+            <>
+              <div className="grid sm:grid-cols-2 gap-5">
+                <div>
+                  <label className="text-sm font-medium text-foreground mb-1.5 flex items-center gap-1.5">
+                    <Phone size={14} className="text-muted-foreground" /> Contact Phone
+                  </label>
+                  <input {...register('phone')} placeholder="+1 555-0199" className="w-full px-4 py-2.5 rounded-xl bg-muted/50 border border-border text-foreground text-sm placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-ring/30 transition-shadow" />
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-foreground mb-1.5 flex items-center gap-1.5">
+                    <MapPin size={14} className="text-muted-foreground" /> Area / Station Description
+                  </label>
+                  <input {...register('area_description')} placeholder="e.g. Downtown West" className="w-full px-4 py-2.5 rounded-xl bg-muted/50 border border-border text-foreground text-sm placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-ring/30 transition-shadow" />
                 </div>
               </div>
             </>

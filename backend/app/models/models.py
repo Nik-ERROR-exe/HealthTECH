@@ -121,7 +121,7 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
-    role: Mapped[UserRole] = mapped_column(Enum(UserRole), nullable=False)
+    role: Mapped[UserRole] = mapped_column(Enum(UserRole), nullable=False, index=True)
 
     # Patient-facing shareable ID (only meaningful for PATIENT role)
     unique_uid: Mapped[str] = mapped_column(
@@ -305,8 +305,8 @@ class AmbulanceProfile(Base):
     area_description: Mapped[str] = mapped_column(String(255), nullable=True)  # base location / area
     latitude: Mapped[float] = mapped_column(Float, nullable=True)
     longitude: Mapped[float] = mapped_column(Float, nullable=True)
-    is_available: Mapped[bool] = mapped_column(Boolean, default=True)
-    current_status: Mapped[str] = mapped_column(String(50), default="available")  # available | responding | en_route | unavailable
+    is_available: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    current_status: Mapped[str] = mapped_column(String(50), default="available", index=True)  # available | responding | en_route | unavailable
     last_active_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
@@ -335,7 +335,7 @@ class RelativeProfile(Base):
         UUID(as_uuid=False), ForeignKey("users.id", ondelete="CASCADE"), unique=True
     )
     patient_id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False), ForeignKey("patient_profiles.id", ondelete="CASCADE")
+        UUID(as_uuid=False), ForeignKey("patient_profiles.id", ondelete="CASCADE"), index=True
     )
     relationship_type: Mapped[RelationshipType] = mapped_column(Enum(RelationshipType), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -377,16 +377,16 @@ class ImpactAlert(Base):
 
     # Status flow: ACTIVE → RESPONDING → EN_ROUTE → RESOLVED
     status: Mapped[ImpactAlertStatus] = mapped_column(
-        Enum(ImpactAlertStatus), default=ImpactAlertStatus.ACTIVE
+        Enum(ImpactAlertStatus), default=ImpactAlertStatus.ACTIVE, index=True
     )
 
     # Volunteer who responded
     responder_volunteer_id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False), ForeignKey("volunteer_profiles.id", ondelete="SET NULL"), nullable=True
+        UUID(as_uuid=False), ForeignKey("volunteer_profiles.id", ondelete="SET NULL"), nullable=True, index=True
     )
     # Ambulance who responded
     responder_ambulance_id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False), ForeignKey("ambulances.id", ondelete="SET NULL"), nullable=True
+        UUID(as_uuid=False), ForeignKey("ambulances.id", ondelete="SET NULL"), nullable=True, index=True
     )
     responder_user_id: Mapped[str] = mapped_column(
         UUID(as_uuid=False), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
@@ -427,14 +427,14 @@ class MedicalCourse(Base):
         UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4())
     )
     doctor_id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False), ForeignKey("doctor_profiles.id", ondelete="CASCADE")
+        UUID(as_uuid=False), ForeignKey("doctor_profiles.id", ondelete="CASCADE"), index=True
     )
     patient_id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False), ForeignKey("patient_profiles.id", ondelete="CASCADE"), nullable=True
+        UUID(as_uuid=False), ForeignKey("patient_profiles.id", ondelete="CASCADE"), nullable=True, index=True
     )
     course_name: Mapped[str] = mapped_column(String(255), nullable=False)
     condition_type: Mapped[ConditionType] = mapped_column(Enum(ConditionType), nullable=False)
-    status: Mapped[CourseStatus] = mapped_column(Enum(CourseStatus), default=CourseStatus.ACTIVE)
+    status: Mapped[CourseStatus] = mapped_column(Enum(CourseStatus), default=CourseStatus.ACTIVE, index=True)
     start_date: Mapped[str] = mapped_column(String(20), nullable=False)
     end_date: Mapped[str] = mapped_column(String(20), nullable=False)
     notes_for_patient: Mapped[str] = mapped_column(Text, nullable=True)
@@ -465,7 +465,7 @@ class Medication(Base):
         UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4())
     )
     course_id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False), ForeignKey("medical_courses.id", ondelete="CASCADE")
+        UUID(as_uuid=False), ForeignKey("medical_courses.id", ondelete="CASCADE"), index=True
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     dosage: Mapped[str] = mapped_column(String(100), nullable=False)     # e.g. "500mg"
@@ -491,10 +491,10 @@ class CheckIn(Base):
         UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4())
     )
     patient_id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False), ForeignKey("patient_profiles.id", ondelete="CASCADE")
+        UUID(as_uuid=False), ForeignKey("patient_profiles.id", ondelete="CASCADE"), index=True
     )
     course_id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False), ForeignKey("medical_courses.id", ondelete="SET NULL"), nullable=True
+        UUID(as_uuid=False), ForeignKey("medical_courses.id", ondelete="SET NULL"), nullable=True, index=True
     )
     input_type: Mapped[InputType] = mapped_column(Enum(InputType), nullable=False)
 
@@ -540,10 +540,10 @@ class RiskScore(Base):
         UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4())
     )
     patient_id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False), ForeignKey("patient_profiles.id", ondelete="CASCADE")
+        UUID(as_uuid=False), ForeignKey("patient_profiles.id", ondelete="CASCADE"), index=True
     )
     check_in_id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False), ForeignKey("check_ins.id", ondelete="CASCADE"), unique=True
+        UUID(as_uuid=False), ForeignKey("check_ins.id", ondelete="CASCADE"), unique=True, index=True
     )
 
     # Component scores (each 0-10)
@@ -555,7 +555,7 @@ class RiskScore(Base):
 
     # Final weighted score (0-100)
     total_score: Mapped[float] = mapped_column(Float, nullable=False)
-    tier: Mapped[RiskTier] = mapped_column(Enum(RiskTier), nullable=False)
+    tier: Mapped[RiskTier] = mapped_column(Enum(RiskTier), nullable=False, index=True)
 
     # Score breakdown (JSON for transparency)
     # e.g. {"fever": {"raw": 6, "weighted": 1.5}, "fatigue": {...}, ...}
@@ -630,7 +630,7 @@ class Alert(Base):
     )
 
     alert_type: Mapped[AlertType] = mapped_column(Enum(AlertType), nullable=False)
-    status: Mapped[AlertStatus] = mapped_column(Enum(AlertStatus), default=AlertStatus.PENDING)
+    status: Mapped[AlertStatus] = mapped_column(Enum(AlertStatus), default=AlertStatus.PENDING, index=True)
     message: Mapped[str] = mapped_column(Text, nullable=False)
     risk_score_value: Mapped[float] = mapped_column(Float, nullable=True)
 
@@ -663,14 +663,14 @@ class DoctorMessage(Base):
         UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4())
     )
     doctor_id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False), ForeignKey("doctor_profiles.id", ondelete="CASCADE")
+        UUID(as_uuid=False), ForeignKey("doctor_profiles.id", ondelete="CASCADE"), index=True
     )
     patient_id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False), ForeignKey("patient_profiles.id", ondelete="CASCADE")
+        UUID(as_uuid=False), ForeignKey("patient_profiles.id", ondelete="CASCADE"), index=True
     )
     message: Mapped[str] = mapped_column(Text, nullable=False)
     sender_type: Mapped[str] = mapped_column(String(20), nullable=False, default="doctor")
-    is_read: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_read: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     doctor: Mapped["DoctorProfile"] = relationship(

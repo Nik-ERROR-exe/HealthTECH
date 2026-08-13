@@ -17,6 +17,8 @@ def _create_engine():
         eng = create_engine(
             settings.database_url,
             pool_pre_ping=True,
+            pool_recycle=300,
+            pool_timeout=30,
             pool_size=10,
             max_overflow=20,
             connect_args={"connect_timeout": 10},

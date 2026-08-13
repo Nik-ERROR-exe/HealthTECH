@@ -6,7 +6,7 @@ import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import desc
 
 from app.database import get_db
@@ -67,8 +67,10 @@ def get_doctor_dashboard(
 ):
     doctor = _get_doctor_profile(current_user, db)
 
-    # All patients assigned to this doctor via active courses
-    courses = db.query(MedicalCourse).filter(
+    # All patients assigned to this doctor via active courses (eager loaded to eliminate N+1 queries)
+    courses = db.query(MedicalCourse).options(
+        joinedload(MedicalCourse.patient).joinedload(PatientProfile.user)
+    ).filter(
         MedicalCourse.doctor_id  == doctor.id,
         MedicalCourse.patient_id != None,
     ).all()
@@ -81,15 +83,11 @@ def get_doctor_dashboard(
             continue
         seen_patient_ids.add(course.patient_id)
 
-        patient_profile = db.query(PatientProfile).filter(
-            PatientProfile.id == course.patient_id
-        ).first()
+        patient_profile = course.patient
         if not patient_profile:
             continue
 
-        patient_user = db.query(User).filter(
-            User.id == patient_profile.user_id
-        ).first()
+        patient_user = patient_profile.user
 
         # Latest risk score
         latest_score = db.query(RiskScore).filter(

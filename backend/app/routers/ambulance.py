@@ -267,6 +267,13 @@ def ambulance_heartbeat(
     return {"status": "ok"}
 
 
+class AmbulanceProfileUpdate(BaseModel):
+    driver_name: str | None = None
+    phone: str | None = None
+    hospital_name: str | None = None
+    ambulance_name: str | None = None
+
+
 # ── GET /ambulance/profile ────────────────────────────────────────────────────
 
 @router.get("/profile")
@@ -275,6 +282,38 @@ def get_profile(
     db:           Session = Depends(get_db),
 ):
     profile = require_ambulance(current_user, db)
+    return {
+        "full_name":        current_user.full_name,
+        "email":            current_user.email,
+        "phone":            profile.phone,
+        "ambulance_name":   profile.ambulance_name,
+        "driver_name":      profile.driver_name,
+        "hospital_name":    profile.hospital_name,
+        "is_available":     profile.is_available,
+        "current_status":   profile.current_status,
+    }
+
+
+# ── PUT /ambulance/profile ────────────────────────────────────────────────────
+
+@router.put("/profile")
+def update_profile(
+    payload:      AmbulanceProfileUpdate,
+    current_user: User    = Depends(get_current_user),
+    db:           Session = Depends(get_db),
+):
+    profile = require_ambulance(current_user, db)
+    if payload.driver_name is not None:
+        profile.driver_name = payload.driver_name
+    if payload.phone is not None:
+        profile.phone = payload.phone
+    if payload.hospital_name is not None:
+        profile.hospital_name = payload.hospital_name
+    if payload.ambulance_name is not None:
+        profile.ambulance_name = payload.ambulance_name
+    profile.updated_at = datetime.now(timezone.utc)
+    db.commit()
+
     return {
         "full_name":        current_user.full_name,
         "email":            current_user.email,
